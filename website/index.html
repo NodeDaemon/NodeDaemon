@@ -142,7 +142,7 @@
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
                     </span>
-                    <span class="text-sm font-medium">v1.0.1 Released</span>
+                    <span class="text-sm font-medium">v1.0.2 Released</span>
                 </div>
                 
                 <!-- Title -->
@@ -222,14 +222,14 @@
             
             <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6" x-data="{ features: [
                     { icon: '🚀', title: 'Process Management', desc: 'Start, stop, restart, and monitor Node.js processes with ease', gradient: 'from-purple-500 to-pink-500' },
-                    { icon: '🔄', title: 'Auto-Restart', desc: 'Automatic restart on crash with exponential backoff strategy', gradient: 'from-pink-500 to-red-500' },
-                    { icon: '⚡', title: 'Cluster Mode', desc: 'Scale across CPU cores with built-in load balancing', gradient: 'from-blue-500 to-cyan-500' },
+                    { icon: '🔄', title: 'Smart Auto-Restart', desc: 'Exponential backoff with restart counter reset after stable uptime', gradient: 'from-pink-500 to-red-500' },
+                    { icon: '⚡', title: 'Cluster Mode', desc: 'Scale across CPU cores with zero-downtime graceful reload', gradient: 'from-blue-500 to-cyan-500' },
                     { icon: '👁️', title: 'File Watching', desc: 'Intelligent file watching with debouncing for auto-reload', gradient: 'from-green-500 to-teal-500' },
-                    { icon: '🔌', title: 'IPC Communication', desc: 'Fast Unix sockets on Linux/macOS, Named pipes on Windows', gradient: 'from-yellow-500 to-orange-500' },
+                    { icon: '📊', title: 'Resource Monitoring', desc: 'Auto-restart on high CPU/memory with configurable thresholds', gradient: 'from-red-500 to-pink-500' },
+                    { icon: '🌍', title: 'Environment Support', desc: 'Load .env files automatically with priority-based merging', gradient: 'from-yellow-500 to-orange-500' },
                     { icon: '💾', title: 'State Persistence', desc: 'Restore processes automatically after daemon restart', gradient: 'from-indigo-500 to-purple-500' },
-                    { icon: '📊', title: 'Health Monitoring', desc: 'Track CPU, memory usage and detect memory leaks', gradient: 'from-red-500 to-pink-500' },
                     { icon: '📝', title: 'Advanced Logging', desc: 'Structured JSON logs with rotation and compression', gradient: 'from-cyan-500 to-blue-500' },
-                    { icon: '🛡️', title: 'Graceful Shutdown', desc: 'Proper cleanup and signal handling for all processes', gradient: 'from-orange-500 to-red-500' }
+                    { icon: '🛡️', title: 'Production Ready', desc: 'Graceful shutdown, memory leak detection, and more', gradient: 'from-orange-500 to-red-500' }
                 ] }">
                 <template x-for="(feature, index) in features" :key="feature.title">
                     <div class="group relative">
@@ -440,12 +440,12 @@
                     
                     <div x-data="{ 
                         commands: [
-                            { name: 'start', desc: 'Start a new process', example: 'nodedaemon start app.js --name myapp --instances 4' },
+                            { name: 'start', desc: 'Start a new process with advanced options', example: 'nodedaemon start app.js --name myapp -i 4 --auto-restart-memory --memory-threshold 512MB' },
                             { name: 'stop', desc: 'Stop a running process', example: 'nodedaemon stop myapp' },
-                            { name: 'restart', desc: 'Restart a process', example: 'nodedaemon restart myapp' },
-                            { name: 'list', desc: 'List all processes', example: 'nodedaemon list --json' },
-                            { name: 'logs', desc: 'View process logs', example: 'nodedaemon logs myapp --follow' },
-                            { name: 'status', desc: 'Check daemon status', example: 'nodedaemon status' }
+                            { name: 'restart', desc: 'Restart with graceful reload', example: 'nodedaemon restart myapp --graceful' },
+                            { name: 'env', desc: 'Load environment from file', example: 'nodedaemon start app.js --env-file .env.production' },
+                            { name: 'monitor', desc: 'Auto-restart on high CPU', example: 'nodedaemon start app.js --auto-restart-cpu --cpu-threshold 80' },
+                            { name: 'status', desc: 'Check daemon and health status', example: 'nodedaemon status' }
                         ],
                         activeCommand: null
                     }" class="space-y-3">
@@ -479,22 +479,21 @@
                 <div>
                     <h3 class="text-2xl font-bold mb-6">Configuration</h3>
                     <div class="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl p-6 overflow-hidden">
-                        <pre class="text-sm overflow-x-auto"><code class="language-javascript text-slate-300">// nodedaemon.config.js
-module.exports = {
-  apps: [{
-    <span class="text-purple-400">name</span>: <span class="text-green-400">'api-server'</span>,
-    <span class="text-purple-400">script</span>: <span class="text-green-400">'server.js'</span>,
-    <span class="text-purple-400">instances</span>: <span class="text-blue-400">4</span>,
-    <span class="text-purple-400">autorestart</span>: <span class="text-blue-400">true</span>,
-    <span class="text-purple-400">watch</span>: <span class="text-blue-400">true</span>,
-    <span class="text-purple-400">env</span>: {
-      <span class="text-purple-400">NODE_ENV</span>: <span class="text-green-400">'production'</span>,
-      <span class="text-purple-400">PORT</span>: <span class="text-blue-400">3000</span>
-    },
-    <span class="text-purple-400">maxMemory</span>: <span class="text-green-400">'1GB'</span>,
-    <span class="text-purple-400">maxRestarts</span>: <span class="text-blue-400">10</span>
-  }]
-};</code></pre>
+                        <pre class="text-sm overflow-x-auto"><code class="language-javascript text-slate-300">// Start with all v1.0.2 features
+nodedaemon start app.js \
+  <span class="text-purple-400">--name</span> <span class="text-green-400">'api-server'</span> \
+  <span class="text-purple-400">--instances</span> <span class="text-blue-400">4</span> \
+  <span class="text-purple-400">--env-file</span> <span class="text-green-400">'.env.production'</span> \
+  <span class="text-purple-400">--watch</span> \
+  <span class="text-purple-400">--auto-restart-memory</span> \
+  <span class="text-purple-400">--memory-threshold</span> <span class="text-green-400">'512MB'</span> \
+  <span class="text-purple-400">--auto-restart-cpu</span> \
+  <span class="text-purple-400">--cpu-threshold</span> <span class="text-blue-400">80</span> \
+  <span class="text-purple-400">--max-restarts</span> <span class="text-blue-400">10</span> \
+  <span class="text-purple-400">--min-uptime</span> <span class="text-blue-400">30000</span>
+
+<span class="text-gray-500"># Graceful reload (zero-downtime)</span>
+nodedaemon restart api-server <span class="text-purple-400">--graceful</span></code></pre>
                     </div>
                 </div>
             </div>

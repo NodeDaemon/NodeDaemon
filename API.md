@@ -50,12 +50,18 @@ Options:
 - `-w, --watch` - Enable file watching for auto-restart
 - `--watch-paths <paths>` - Specific paths to watch (comma-separated)
 - `-e, --env <KEY=VALUE>` - Environment variables (can be used multiple times)
+- `--env-file <file>` - Load environment from file (.env, .env.local, etc)
 - `--cwd <path>` - Working directory for the process
 - `--args <args>` - Arguments to pass to the script
 - `--interpreter <cmd>` - Custom interpreter (default: node)
 - `--max-memory <size>` - Memory limit before restart (e.g., 512MB, 1GB)
-- `--max-restarts <count>` - Maximum restart attempts (default: 15)
+- `--max-restarts <count>` - Maximum restart attempts (default: 10)
 - `--restart-delay <ms>` - Delay between restarts in milliseconds (default: 1000)
+- `--min-uptime <ms>` - Minimum uptime to reset restart counter (default: 10000)
+- `--auto-restart-memory` - Auto-restart on high memory usage
+- `--auto-restart-cpu` - Auto-restart on high CPU usage
+- `--memory-threshold <size>` - Memory threshold for auto-restart (default: 512MB)
+- `--cpu-threshold <percent>` - CPU threshold for auto-restart (default: 80)
 - `--no-daemon` - Don't auto-start daemon if not running
 
 Examples:
@@ -72,8 +78,23 @@ nodedaemon start app.js --name dev --watch
 # Start with environment variables
 nodedaemon start worker.js --env NODE_ENV=production --env PORT=3000
 
+# Start with environment file
+nodedaemon start app.js --env-file .env.production
+
 # Start with memory limit
 nodedaemon start app.js --max-memory 512MB --max-restarts 5
+
+# Start with auto-restart on resource usage
+nodedaemon start app.js --auto-restart-memory --memory-threshold 256MB
+
+# Start with full production configuration
+nodedaemon start api.js \
+  --name prod-api \
+  --instances 4 \
+  --env-file .env.production \
+  --auto-restart-memory \
+  --auto-restart-cpu \
+  --min-uptime 30000
 ```
 
 ### stop
@@ -106,13 +127,21 @@ nodedaemon stop --id proc_abc123
 Restart a process (stop then start).
 
 ```bash
-nodedaemon restart <name|id>
+nodedaemon restart <name|id> [options]
 ```
+
+Options:
+- `-g, --graceful` - Graceful reload for zero-downtime (cluster mode only)
+- `-n, --name <name>` - Restart by process name
+- `--id <id>` - Restart by process ID
 
 Examples:
 ```bash
 # Restart by name
 nodedaemon restart myapp
+
+# Graceful reload (zero-downtime)
+nodedaemon restart myapp --graceful
 
 # Restart by ID
 nodedaemon restart proc_abc123

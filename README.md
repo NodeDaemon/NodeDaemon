@@ -2,18 +2,32 @@
 
 A production-ready Node.js process manager with **zero external dependencies**, built entirely with Node.js built-in modules.
 
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/nodedaemon/nodedaemon/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
+
 ## Features
 
+### Core Features
 - **Process Management**: Start, stop, restart, and monitor Node.js processes
-- **Auto-restart**: Automatic restart on crash with exponential backoff
-- **Cluster Mode**: Multi-instance processes with load balancing
-- **File Watching**: Intelligent file watching with debouncing
-- **Daemon Mode**: Run as background service
-- **IPC Communication**: Unix sockets/Windows named pipes
-- **State Persistence**: Restore processes after daemon restart
+- **Smart Auto-restart**: Exponential backoff with restart counter reset after stable uptime
+- **Cluster Mode**: Multi-instance processes with zero-downtime graceful reload
+- **File Watching**: Intelligent file watching with debouncing for auto-reload
+- **Daemon Mode**: Run as background service with automatic startup
+
+### v1.0.2 New Features 🎉
+- **Resource-based Auto-restart**: Automatically restart processes on high CPU/memory usage
+- **Environment File Support**: Load `.env` files with priority-based merging
+- **Graceful Reload**: Zero-downtime restart for cluster mode applications
+- **Enhanced Restart Logic**: Configurable minimum uptime for restart counter reset
+- **Improved Health Monitoring**: Memory leak detection and CPU spike alerts
+
+### Technical Features
+- **IPC Communication**: Fast Unix sockets on Linux/macOS, Named pipes on Windows
+- **State Persistence**: Restore processes automatically after daemon restart
 - **Log Management**: Structured logging with rotation and compression
-- **Health Monitoring**: Memory and CPU monitoring with alerts
-- **Graceful Shutdown**: Proper cleanup and signal handling
+- **Health Monitoring**: Real-time CPU and memory monitoring with configurable thresholds
+- **Graceful Shutdown**: Proper cleanup and signal handling for all processes
 
 ![Features](features.jpg)
 
@@ -85,11 +99,20 @@ nodedaemon start app.js --name myapp --watch
 # Start with custom environment
 nodedaemon start worker.js --env NODE_ENV=production --env PORT=3000
 
+# Start with environment file
+nodedaemon start app.js --env-file .env.production
+
 # Start with specific working directory
 nodedaemon start server.js --cwd /path/to/app
 
-# Start with memory limit
-nodedaemon start app.js --max-memory 512MB --max-restarts 5
+# Start with memory limit and auto-restart
+nodedaemon start app.js --max-memory 512MB --max-restarts 5 --min-uptime 10000
+
+# Start with resource monitoring and auto-restart
+nodedaemon start app.js --auto-restart-memory --memory-threshold 256MB
+
+# Start with CPU monitoring
+nodedaemon start app.js --auto-restart-cpu --cpu-threshold 80
 ```
 
 ### Process Control
@@ -103,6 +126,9 @@ nodedaemon stop myapp --force
 
 # Restart a process
 nodedaemon restart myapp
+
+# Graceful reload (zero-downtime for cluster mode)
+nodedaemon restart myapp --graceful
 
 # List all processes
 nodedaemon list
@@ -130,6 +156,55 @@ nodedaemon logs myapp --follow
 nodedaemon list --json
 ```
 
+## Advanced Examples
+
+### Production Setup with All Features
+```bash
+nodedaemon start api-server.js \
+  --name production-api \
+  --instances 4 \
+  --env-file .env.production \
+  --watch \
+  --auto-restart-memory \
+  --memory-threshold 1GB \
+  --auto-restart-cpu \
+  --cpu-threshold 85 \
+  --max-restarts 10 \
+  --min-uptime 30000 \
+  --restart-delay 2000
+```
+
+### Microservices with Environment Files
+```bash
+# API Service
+nodedaemon start services/api.js --name api --env-file .env.api
+
+# Worker Service
+nodedaemon start services/worker.js --name worker --env-file .env.worker
+
+# WebSocket Service
+nodedaemon start services/websocket.js --name ws --instances max
+```
+
+### Zero-downtime Deployment
+```bash
+# Deploy new version with graceful reload
+git pull origin main
+npm install
+npm run build
+nodedaemon restart api --graceful
+```
+
+### Development Environment
+```bash
+# Auto-restart on file changes with debug logging
+nodedaemon start app.js \
+  --name dev-app \
+  --watch \
+  --env NODE_ENV=development \
+  --env DEBUG=app:*
+```
+
 ## Configuration
 
 NodeDaemon stores its configuration and state in `~/.nodedaemon/`:
@@ -148,17 +223,28 @@ NodeDaemon stores its configuration and state in `~/.nodedaemon/`:
 
 When starting processes, you can specify:
 
+**Basic Options:**
 - `--name`: Process name for easy identification
 - `--instances`: Number of instances (1, 4, 'max' for CPU count)
 - `--watch`: Enable file watching for auto-restart
 - `--watch-paths`: Specific paths to watch
 - `--env`: Environment variables (KEY=VALUE)
+- `--env-file`: Load environment from file (.env, .env.local, etc)
 - `--cwd`: Working directory
 - `--args`: Command line arguments
 - `--interpreter`: Custom interpreter (default: node)
+
+**Restart Configuration:**
 - `--max-memory`: Memory limit before restart
 - `--max-restarts`: Maximum restart attempts
 - `--restart-delay`: Delay between restarts
+- `--min-uptime`: Minimum uptime to reset restart counter (ms)
+
+**Auto-restart Options (v1.0.2):**
+- `--auto-restart-memory`: Enable auto-restart on high memory
+- `--auto-restart-cpu`: Enable auto-restart on high CPU
+- `--memory-threshold`: Memory threshold for auto-restart (default: 512MB)
+- `--cpu-threshold`: CPU threshold for auto-restart (default: 80%)
 
 ## Architecture
 

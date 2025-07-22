@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved logging for restart attempts with detailed backoff information
 - Default minimum uptime set to 10 seconds for restart counter reset
 
-## [1.0.1] - 2025-07-23
+## [1.0.1] - 2025-07-22
 
 ### Fixed
 - Fixed daemon startup issue where wrong script file was being executed
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Daemon now properly starts from `daemon/index.js` instead of `daemon/NodeDaemonCore.js`
 
-## [1.0.0] - 2025-07-23
+## [1.0.0] - 2025-07-22
 
 ### Added
 - **Core Features**
