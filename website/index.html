@@ -216,12 +216,11 @@
                     </span>
                 </h2>
                 <p class="text-xl text-slate-400 max-w-2xl mx-auto">
-                    Everything you need to manage Node.js processes at scale
+                    Everything you need for production-grade Node.js process management
                 </p>
             </div>
             
-            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div x-data="{ features: [
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6" x-data="{ features: [
                     { icon: '🚀', title: 'Process Management', desc: 'Start, stop, restart, and monitor Node.js processes with ease', gradient: 'from-purple-500 to-pink-500' },
                     { icon: '🔄', title: 'Auto-Restart', desc: 'Automatic restart on crash with exponential backoff strategy', gradient: 'from-pink-500 to-red-500' },
                     { icon: '⚡', title: 'Cluster Mode', desc: 'Scale across CPU cores with built-in load balancing', gradient: 'from-blue-500 to-cyan-500' },
@@ -231,22 +230,18 @@
                     { icon: '📊', title: 'Health Monitoring', desc: 'Track CPU, memory usage and detect memory leaks', gradient: 'from-red-500 to-pink-500' },
                     { icon: '📝', title: 'Advanced Logging', desc: 'Structured JSON logs with rotation and compression', gradient: 'from-cyan-500 to-blue-500' },
                     { icon: '🛡️', title: 'Graceful Shutdown', desc: 'Proper cleanup and signal handling for all processes', gradient: 'from-orange-500 to-red-500' }
-                ] }" x-for="(feature, index) in features" :key="feature.title"
-                     x-show="true"
-                     x-transition:enter="transition ease-out duration-300"
-                     x-transition:enter-start="opacity-0 transform translate-y-4"
-                     x-transition:enter-end="opacity-100 transform translate-y-0"
-                     :style="`transition-delay: ${index * 50}ms`">
+                ] }">
+                <template x-for="(feature, index) in features" :key="feature.title">
                     <div class="group relative">
                         <div class="absolute inset-0 bg-gradient-to-r opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500"
-                             :class="`${feature.gradient}`"></div>
+                             :class="feature.gradient"></div>
                         <div class="relative bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-8 hover:border-slate-700 transition-all hover:-translate-y-1">
                             <div class="text-5xl mb-4" x-text="feature.icon"></div>
                             <h3 class="text-xl font-semibold mb-3" x-text="feature.title"></h3>
                             <p class="text-slate-400" x-text="feature.desc"></p>
                         </div>
                     </div>
-                </div>
+                </template>
             </div>
         </div>
     </section>
