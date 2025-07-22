@@ -18,7 +18,7 @@ A production-ready Node.js process manager with **zero external dependencies**, 
 ## Installation
 
 ```bash
-npm install -g nodedaemon
+npm install -g @nodedaemon/core
 ```
 
 Or build from source:

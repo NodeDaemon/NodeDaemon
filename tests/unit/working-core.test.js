@@ -39,7 +39,7 @@ framework.describe('NodeDaemon Core - Working Tests', () => {
       framework.expect(existsSync(packagePath)).toBeTruthy();
       
       const packageData = JSON.parse(readFileSync(packagePath, 'utf8'));
-      framework.expect(packageData.name).toBe('nodedaemon');
+      framework.expect(packageData.name).toBe('@nodedaemon/core');
       framework.expect(packageData.version).toBe('1.0.0');
     });
 
