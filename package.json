@@ -1,0 +1,58 @@
+{
+  "name": "nodedaemon",
+  "version": "1.0.0",
+  "description": "Production-ready Node.js process manager with zero external dependencies",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "nodedaemon": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc && node build.js",
+    "build:watch": "tsc --watch",
+    "build:bundle": "node build.js",
+    "start": "node dist/cli/index.js",
+    "start:daemon": "node dist/daemon/index.js",
+    "test": "node tests/run-working-tests.js",
+    "test:working": "node tests/run-working-tests.js",
+    "clean": "rimraf dist build",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "process", 
+    "manager", 
+    "daemon", 
+    "cluster", 
+    "pm2", 
+    "forever", 
+    "nodejs", 
+    "zero-dependencies",
+    "production",
+    "monitoring",
+    "logging",
+    "restart",
+    "watch"
+  ],
+  "author": "NodeDaemon Contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nodedaemon/nodedaemon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nodedaemon/nodedaemon/issues"
+  },
+  "homepage": "https://nodedaemon.com",
+  "files": [
+    "dist/",
+    "build/",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

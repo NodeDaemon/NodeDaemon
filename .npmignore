@@ -1,0 +1,54 @@
+# Source files
+src/
+*.ts
+!dist/**/*.d.ts
+
+# Development files
+tsconfig.json
+.gitignore
+.npmignore
+
+# Test files
+tests/
+*.test.js
+*.spec.js
+
+# Documentation source
+docs/
+*.md
+!README.md
+!LICENSE
+!CHANGELOG.md
+
+# Build scripts
+build.js
+
+# Git files
+.git/
+.github/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# NodeDaemon runtime
+~/.nodedaemon/
+.nodedaemon/
+*.sock
+state.json
