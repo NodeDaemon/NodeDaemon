@@ -15,6 +15,8 @@ A production-ready Node.js process manager with **zero external dependencies**, 
 - **Health Monitoring**: Memory and CPU monitoring with alerts
 - **Graceful Shutdown**: Proper cleanup and signal handling
 
+![Features](features.jpg)
+
 ## Installation
 
 ```bash
