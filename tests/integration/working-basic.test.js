@@ -60,7 +60,7 @@ framework.describe('NodeDaemon Integration - Working Tests', () => {
       const packageData = JSON.parse(readFileSync(packagePath, 'utf8'));
       
       framework.expect(packageData.name).toBe('@nodedaemon/core');
-      framework.expect(packageData.version).toBe('1.0.0');
+      framework.expect(packageData.version).toBe('1.0.1');
       framework.expect(packageData.scripts).toHaveProperty('test');
       framework.expect(packageData.scripts).toHaveProperty('build');
       framework.expect(packageData.bin).toHaveProperty('nodedaemon');

@@ -57,7 +57,7 @@ class NodeDaemonCLI {
   private async handleDaemon(options: any): Promise<void> {
     if (options.detach) {
       // Start daemon in background
-      const daemonScript = resolve(__dirname, '../daemon/NodeDaemonCore.js');
+      const daemonScript = resolve(__dirname, '../daemon/index.js');
       const child = spawn(process.execPath, [daemonScript], {
         detached: true,
         stdio: 'ignore',
@@ -65,7 +65,19 @@ class NodeDaemonCLI {
       });
 
       child.unref();
-      console.log(Formatter.formatSuccess(`Daemon started with PID ${child.pid}`));
+      
+      // Wait a moment to verify daemon started
+      setTimeout(async () => {
+        try {
+          const client = new IPCClient();
+          await client.connect();
+          await client.disconnect();
+          console.log(Formatter.formatSuccess(`Daemon started with PID ${child.pid}`));
+        } catch (error) {
+          console.log(Formatter.formatError('Daemon failed to start properly'));
+          console.log(Formatter.formatInfo('Check daemon logs for details'));
+        }
+      }, 1000);
     } else {
       // Start daemon in foreground
       console.log(Formatter.formatInfo('Starting NodeDaemon...'));
@@ -323,7 +335,7 @@ class NodeDaemonCLI {
         console.log(Formatter.formatInfo('Starting daemon...'));
         
         // Start daemon in background
-        const daemonScript = resolve(__dirname, '../daemon/NodeDaemonCore.js');
+        const daemonScript = resolve(__dirname, '../daemon/index.js');
         const child = spawn(process.execPath, [daemonScript], {
           detached: true,
           stdio: 'ignore'

@@ -1,0 +1,195 @@
+/* Custom Styles for NodeDaemon Website */
+
+/* Smooth scroll behavior */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Custom animations */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fade-in 0.6s ease-out;
+}
+
+/* Code blocks enhancement */
+pre {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+code {
+    font-family: 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Gradient text animation */
+@keyframes gradient-shift {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.bg-gradient-to-r {
+    background-size: 200% 200%;
+    animation: gradient-shift 3s ease infinite;
+}
+
+/* Terminal cursor effect */
+.terminal-cursor::after {
+    content: '_';
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% {
+        opacity: 1;
+    }
+    51%, 100% {
+        opacity: 0;
+    }
+}
+
+/* Hover effects for feature cards */
+.feature-card {
+    transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+}
+
+/* Mobile menu animation */
+[x-cloak] {
+    display: none !important;
+}
+
+/* Command example styling */
+.command-example {
+    position: relative;
+    overflow: hidden;
+}
+
+.command-example::before {
+    content: '$';
+    position: absolute;
+    left: 1rem;
+    color: #10b981;
+    font-weight: bold;
+}
+
+/* Table enhancements */
+table {
+    border-collapse: collapse;
+}
+
+tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+/* Loading animation */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: .5;
+    }
+}
+
+.loading {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Section dividers */
+section {
+    position: relative;
+}
+
+/* Responsive utilities */
+@media (max-width: 768px) {
+    .container {
+        max-width: 100%;
+    }
+    
+    h1 {
+        font-size: 2.5rem;
+    }
+    
+    h2 {
+        font-size: 2rem;
+    }
+}
+
+/* Print styles */
+@media print {
+    header, footer {
+        display: none;
+    }
+    
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+    
+    .bg-gradient-to-r {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+
+/* Focus styles for accessibility */
+a:focus,
+button:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* Skip to content link */
+.skip-to-content {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 999;
+}
+
+.skip-to-content:focus {
+    left: 0;
+    background: #1f2937;
+    color: white;
+    padding: 0.5rem 1rem;
+    text-decoration: none;
+}

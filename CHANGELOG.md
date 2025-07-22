@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Initial release preparation
-- Comprehensive documentation
-- 100% test coverage
+## [1.0.1] - 2025-07-23
+
+### Fixed
+- Fixed daemon startup issue where wrong script file was being executed
+- Added daemon startup verification to ensure it's running before reporting success
+- Improved error messages when daemon fails to start
+
+### Changed
+- Daemon now properly starts from `daemon/index.js` instead of `daemon/NodeDaemonCore.js`
 
 ## [1.0.0] - 2025-07-23
 
