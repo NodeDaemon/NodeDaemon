@@ -4,7 +4,8 @@ import { cpus } from 'os';
 import { EventEmitter } from 'events';
 import { ProcessConfig, ProcessInfo, ProcessInstance, ProcessStrategy, HealthCheckResult } from '../types';
 import { LogManager } from './LogManager';
-import { generateId, calculateExponentialBackoff, sanitizeProcessName, validateProcessConfig } from '../utils/helpers';
+import { generateId, calculateExponentialBackoff, sanitizeProcessName, validateProcessConfig, formatUptime } from '../utils/helpers';
+import { findEnvFile, loadEnvFile, mergeEnvConfigs } from '../utils/env';
 import { DEFAULT_CONFIG, GRACEFUL_SHUTDOWN_TIMEOUT, FORCE_KILL_TIMEOUT, SIGNALS } from '../utils/constants';
 
 export class ProcessOrchestrator extends EventEmitter {
@@ -50,6 +51,17 @@ export class ProcessOrchestrator extends EventEmitter {
     const processName = config.name || sanitizeProcessName(config.script);
     const instanceCount = this.resolveInstanceCount(config.instances);
     const strategy = this.determineStrategy(config);
+    
+    // Load environment from .env files
+    let envConfig = {};
+    const envFilePath = findEnvFile(config.script, config.envFile);
+    if (envFilePath) {
+      envConfig = loadEnvFile(envFilePath);
+      this.logger.info(`Loaded environment from ${envFilePath}`, { processName });
+    }
+    
+    // Merge with provided env vars (provided vars take precedence)
+    const finalEnv = mergeEnvConfigs(envConfig, config.env || {});
 
     const processInfo: ProcessInfo = {
       id: processId,
@@ -58,7 +70,7 @@ export class ProcessOrchestrator extends EventEmitter {
       status: 'starting',
       restarts: 0,
       instances: [],
-      config: { ...DEFAULT_CONFIG, ...config },
+      config: { ...DEFAULT_CONFIG, ...config, env: finalEnv },
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -252,24 +264,43 @@ export class ProcessOrchestrator extends EventEmitter {
     instance.status = code === 0 ? 'stopped' : 'crashed';
     this.childProcesses.delete(instance.id);
 
+    // Calculate uptime
+    const uptime = instance.uptime ? Date.now() - instance.uptime : 0;
+    
+    // Reset restart counter if process ran successfully for minimum uptime
+    if (uptime >= (processInfo.config.minUptime || DEFAULT_CONFIG.minUptime)) {
+      instance.restarts = 0;
+      this.logger.info(`Process ran successfully for ${formatUptime(uptime)}, resetting restart counter`, {
+        processId: processInfo.id,
+        instanceId: instance.id
+      });
+    }
+
     this.logger.info(`Process instance exited`, {
       processId: processInfo.id,
       instanceId: instance.id,
       pid: instance.pid,
       code,
-      signal
+      signal,
+      uptime: formatUptime(uptime),
+      restarts: instance.restarts
     });
 
     if (processInfo.status !== 'stopping' && !this.isShuttingDown) {
       if (instance.restarts < processInfo.config.maxRestarts!) {
         this.scheduleRestart(processInfo, instance);
       } else {
-        this.logger.error(`Process instance reached max restarts`, {
+        this.logger.error(`Process instance reached max restarts, stopping permanently`, {
           processId: processInfo.id,
           instanceId: instance.id,
-          maxRestarts: processInfo.config.maxRestarts
+          maxRestarts: processInfo.config.maxRestarts,
+          totalRestarts: instance.restarts
         });
+        instance.status = 'errored';
         processInfo.status = 'errored';
+        
+        // Emit event for max restarts reached
+        this.emit('maxRestartsReached', processInfo, instance);
       }
     }
 
@@ -284,10 +315,12 @@ export class ProcessOrchestrator extends EventEmitter {
       processInfo.config.maxRestartDelay!
     );
 
-    this.logger.info(`Scheduling restart in ${delay}ms`, {
+    this.logger.warn(`Process crashed too quickly, scheduling restart in ${delay}ms`, {
       processId: processInfo.id,
       instanceId: instance.id,
-      attempt: instance.restarts + 1
+      attempt: instance.restarts + 1,
+      maxRestarts: processInfo.config.maxRestarts,
+      backoffDelay: `${delay}ms`
     });
 
     const timer = setTimeout(() => {
@@ -412,31 +445,105 @@ export class ProcessOrchestrator extends EventEmitter {
     });
   }
 
-  public async restartProcess(processId: string): Promise<void> {
-    await this.stopProcess(processId);
-    
+  public async restartProcess(processId: string, graceful: boolean = false): Promise<void> {
     const processInfo = this.processes.get(processId);
     if (!processInfo) {
-      throw new Error(`Process not found after stop: ${processId}`);
+      throw new Error(`Process not found: ${processId}`);
     }
 
-    processInfo.instances = [];
-    const instanceCount = this.resolveInstanceCount(processInfo.config.instances);
     const strategy = this.determineStrategy(processInfo.config);
+    const instanceCount = this.resolveInstanceCount(processInfo.config.instances);
 
-    processInfo.status = 'starting';
-    processInfo.updatedAt = Date.now();
-
-    if (strategy === 'cluster' && instanceCount > 1) {
-      await this.startClusterProcess(processInfo, instanceCount);
+    // For cluster mode with multiple instances, do graceful reload
+    if (graceful && strategy === 'cluster' && instanceCount > 1) {
+      await this.gracefulReload(processInfo);
     } else {
-      await this.startSingleProcess(processInfo, strategy);
-    }
+      // Standard restart
+      await this.stopProcess(processId);
+      
+      const updatedProcessInfo = this.processes.get(processId);
+      if (!updatedProcessInfo) {
+        throw new Error(`Process not found after stop: ${processId}`);
+      }
 
+      updatedProcessInfo.instances = [];
+      updatedProcessInfo.status = 'starting';
+      updatedProcessInfo.updatedAt = Date.now();
+
+      if (strategy === 'cluster' && instanceCount > 1) {
+        await this.startClusterProcess(updatedProcessInfo, instanceCount);
+      } else {
+        await this.startSingleProcess(updatedProcessInfo, strategy);
+      }
+
+      updatedProcessInfo.status = 'running';
+      updatedProcessInfo.updatedAt = Date.now();
+
+      this.emit('processRestarted', updatedProcessInfo);
+    }
+  }
+
+  private async gracefulReload(processInfo: ProcessInfo): Promise<void> {
+    this.logger.info(`Starting graceful reload for ${processInfo.name}`, { processId: processInfo.id });
+    
+    const instanceCount = this.resolveInstanceCount(processInfo.config.instances);
+    const oldInstances = [...processInfo.instances];
+    const newInstances: ProcessInstance[] = [];
+    
+    processInfo.status = 'reloading';
+    processInfo.updatedAt = Date.now();
+    
+    // Start new instances first
+    for (let i = 0; i < instanceCount; i++) {
+      const instanceId = generateId();
+      const instance: ProcessInstance = {
+        id: instanceId,
+        status: 'starting',
+        restarts: 0
+      };
+      
+      newInstances.push(instance);
+      processInfo.instances.push(instance);
+      
+      try {
+        await this.startClusterInstance(processInfo, i);
+        
+        // Wait a bit for the new instance to be ready
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        this.logger.error(`Failed to start new instance during graceful reload`, {
+          processId: processInfo.id,
+          instanceId,
+          error: error.message
+        });
+      }
+    }
+    
+    // Now stop old instances one by one
+    for (const oldInstance of oldInstances) {
+      await this.stopInstance(processInfo, oldInstance, false);
+      
+      // Remove old instance from the list
+      const index = processInfo.instances.findIndex(i => i.id === oldInstance.id);
+      if (index >= 0) {
+        processInfo.instances.splice(index, 1);
+      }
+      
+      // Wait a bit between stopping instances
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
     processInfo.status = 'running';
     processInfo.updatedAt = Date.now();
-
-    this.emit('processRestarted', processInfo);
+    
+    this.logger.info(`Graceful reload completed for ${processInfo.name}`, {
+      processId: processInfo.id,
+      oldInstances: oldInstances.length,
+      newInstances: newInstances.length
+    });
+    
+    this.emit('processReloaded', processInfo);
   }
 
   public deleteProcess(processId: string): void {

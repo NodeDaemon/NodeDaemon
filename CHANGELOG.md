@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2025-07-22
+
+### Added
+- Enhanced process health monitoring with more detailed metrics
+- Improved daemon stability and performance
+- Better error handling for edge cases
+- Smart restart mechanism with exponential backoff
+- Restart counter reset after successful minimum uptime
+- Permanent stop after reaching max restart attempts
+- New `--min-uptime` option to configure restart counter reset threshold
+- Auto-restart on high memory/CPU usage with configurable thresholds
+- New options: `--auto-restart-memory`, `--auto-restart-cpu`, `--memory-threshold`, `--cpu-threshold`
+- Environment file support with `--env-file` option (supports .env, .env.local, etc.)
+- Graceful reload for zero-downtime restarts in cluster mode with `--graceful` flag
+
+### Fixed
+- Minor bug fixes and improvements
+- Memory usage optimization for long-running processes
+- Prevented restart loops for processes with port conflicts or critical errors
+
+### Changed
+- Updated internal dependencies for better compatibility
+- Improved logging for restart attempts with detailed backoff information
+- Default minimum uptime set to 10 seconds for restart counter reset
+
 ## [1.0.1] - 2025-07-23
 
 ### Fixed

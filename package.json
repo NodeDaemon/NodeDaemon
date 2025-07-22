@@ -1,6 +1,6 @@
 {
   "name": "@nodedaemon/core",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Production-ready Node.js process manager with zero external dependencies",
   "main": "dist/cli/index.js",
   "bin": {

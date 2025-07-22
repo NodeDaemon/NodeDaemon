@@ -20,7 +20,7 @@ export class StateManager {
   private createInitialState(): DaemonState {
     return {
       processes: new Map(),
-      version: '1.0.0',
+      version: '1.0.2',
       startedAt: Date.now(),
       pid: process.pid
     };

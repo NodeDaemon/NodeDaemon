@@ -11,7 +11,7 @@ export interface ParsedCommand {
 export class CommandParser {
   public parse(argv: string[]): ParsedCommand {
     if (argv.length < 3) {
-      throw new Error('No command provided');
+      return { command: 'help', options: {}, args: [] };
     }
 
     const command = argv[2];
@@ -75,12 +75,18 @@ export class CommandParser {
         watch: { type: 'boolean', short: 'w' },
         'watch-paths': { type: 'string', multiple: true },
         env: { type: 'string', multiple: true, short: 'e' },
+        'env-file': { type: 'string' },
         cwd: { type: 'string' },
         args: { type: 'string', multiple: true },
         interpreter: { type: 'string' },
         'max-memory': { type: 'string' },
         'max-restarts': { type: 'string' },
         'restart-delay': { type: 'string' },
+        'min-uptime': { type: 'string' },
+        'auto-restart-memory': { type: 'boolean' },
+        'auto-restart-cpu': { type: 'boolean' },
+        'memory-threshold': { type: 'string' },
+        'cpu-threshold': { type: 'string' },
         'no-daemon': { type: 'boolean' }
       },
       allowPositionals: true
@@ -135,12 +141,18 @@ export class CommandParser {
       instances,
       watch,
       env: Object.keys(env).length > 0 ? env : undefined,
+      envFile: values['env-file'] as string,
       cwd: values.cwd as string,
       args: positionals.slice(1).concat(values.args || []),
       interpreter: values.interpreter as string,
       maxMemory: values['max-memory'] as string,
       maxRestarts: values['max-restarts'] ? parseInt(values['max-restarts'], 10) : undefined,
-      restartDelay: values['restart-delay'] ? parseInt(values['restart-delay'], 10) : undefined
+      restartDelay: values['restart-delay'] ? parseInt(values['restart-delay'], 10) : undefined,
+      minUptime: values['min-uptime'] ? parseInt(values['min-uptime'], 10) : undefined,
+      autoRestartOnHighMemory: values['auto-restart-memory'] as boolean,
+      autoRestartOnHighCpu: values['auto-restart-cpu'] as boolean,
+      memoryThreshold: values['memory-threshold'] as string,
+      cpuThreshold: values['cpu-threshold'] ? parseInt(values['cpu-threshold'], 10) : undefined
     };
 
     // Validate config
@@ -188,7 +200,8 @@ export class CommandParser {
       args,
       options: {
         name: { type: 'string', short: 'n' },
-        id: { type: 'string' }
+        id: { type: 'string' },
+        graceful: { type: 'boolean', short: 'g' }
       },
       allowPositionals: true
     });
@@ -202,7 +215,8 @@ export class CommandParser {
       command: 'restart',
       options: {
         target,
-        byName: !values.id && (values.name || !target.includes('-'))
+        byName: !values.id && (values.name || !target.includes('-')),
+        graceful: values.graceful
       },
       args: positionals
     };
@@ -335,12 +349,18 @@ START OPTIONS:
   -w, --watch              Watch for file changes and restart
   --watch-paths <paths>    Specific paths to watch (comma-separated)
   -e, --env <KEY=VALUE>    Environment variables (can be used multiple times)
+  --env-file <file>        Load environment from file (.env, .env.local, etc)
   --cwd <path>             Working directory
   --args <args>            Arguments to pass to script
   --interpreter <cmd>      Custom interpreter (default: node)
   --max-memory <size>      Maximum memory before restart (e.g., 512MB)
   --max-restarts <count>   Maximum restart attempts
   --restart-delay <ms>     Delay between restarts
+  --min-uptime <ms>        Minimum uptime to reset restart counter
+  --auto-restart-memory    Auto-restart on high memory usage
+  --auto-restart-cpu       Auto-restart on high CPU usage
+  --memory-threshold <size> Memory threshold for auto-restart (default: 512MB)
+  --cpu-threshold <percent> CPU threshold for auto-restart (default: 80)
   --no-daemon              Don't start daemon if not running
 
 STOP OPTIONS:
@@ -378,6 +398,6 @@ EXAMPLES:
   }
 
   public getVersion(): string {
-    return '1.0.1';
+    return '1.0.2';
   }
 }

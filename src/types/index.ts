@@ -4,6 +4,7 @@ export interface ProcessConfig {
   instances?: number | 'max';
   watch?: boolean | string[];
   env?: Record<string, string>;
+  envFile?: string;
   cwd?: string;
   args?: string[];
   interpreter?: string;
@@ -11,6 +12,12 @@ export interface ProcessConfig {
   maxRestarts?: number;
   restartDelay?: number;
   maxRestartDelay?: number;
+  minUptime?: number;
+  autoRestartOnCrash?: boolean;
+  autoRestartOnHighMemory?: boolean;
+  autoRestartOnHighCpu?: boolean;
+  memoryThreshold?: string; // e.g., "512MB"
+  cpuThreshold?: number; // percentage, e.g., 80
 }
 
 export interface ProcessInfo {
@@ -18,7 +25,7 @@ export interface ProcessInfo {
   name: string;
   script: string;
   pid?: number;
-  status: 'starting' | 'running' | 'stopping' | 'stopped' | 'errored' | 'crashed';
+  status: 'starting' | 'running' | 'stopping' | 'stopped' | 'errored' | 'crashed' | 'reloading';
   uptime?: number;
   restarts: number;
   memory?: number;

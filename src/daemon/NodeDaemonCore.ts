@@ -8,13 +8,15 @@ import { ProcessOrchestrator } from '../core/ProcessOrchestrator';
 import { FileWatcher } from '../core/FileWatcher';
 import { LogManager } from '../core/LogManager';
 import { StateManager } from '../core/StateManager';
+import { HealthMonitor } from '../core/HealthMonitor';
 
-import { generateId, ensureDir } from '../utils/helpers';
+import { generateId, ensureDir, parseMemoryString, formatMemory } from '../utils/helpers';
 import { 
   IPC_SOCKET_PATH, 
   NODEDAEMON_DIR, 
   HEALTH_CHECK_INTERVAL,
-  GRACEFUL_SHUTDOWN_TIMEOUT 
+  GRACEFUL_SHUTDOWN_TIMEOUT,
+  DEFAULT_CONFIG
 } from '../utils/constants';
 
 const unlinkAsync = promisify(unlink);
@@ -25,6 +27,7 @@ export class NodeDaemonCore extends EventEmitter {
   private stateManager: StateManager;
   private processOrchestrator: ProcessOrchestrator;
   private fileWatcher: FileWatcher;
+  private healthMonitor: HealthMonitor;
   private clients: Set<Socket> = new Set();
   private isShuttingDown: boolean = false;
   private healthCheckTimer: NodeJS.Timeout | null = null;
@@ -38,6 +41,7 @@ export class NodeDaemonCore extends EventEmitter {
     this.stateManager = new StateManager(this.logger);
     this.processOrchestrator = new ProcessOrchestrator(this.logger);
     this.fileWatcher = new FileWatcher();
+    this.healthMonitor = new HealthMonitor(this.logger);
     
     // Create IPC server
     this.server = createServer();
@@ -45,6 +49,7 @@ export class NodeDaemonCore extends EventEmitter {
     this.setupEventHandlers();
     this.setupFileWatchHandlers();
     this.setupProcessHandlers();
+    this.setupHealthHandlers();
     this.setupSignalHandlers();
   }
 
@@ -73,17 +78,20 @@ export class NodeDaemonCore extends EventEmitter {
   private setupProcessHandlers(): void {
     this.processOrchestrator.on('processStarted', (processInfo) => {
       this.stateManager.setProcess(processInfo.id, processInfo);
+      this.healthMonitor.addProcess(processInfo);
       this.logger.info(`Process started: ${processInfo.name}`, { processId: processInfo.id });
     });
 
     this.processOrchestrator.on('processStopped', (processInfo) => {
       this.stateManager.updateProcess(processInfo.id, processInfo);
+      this.healthMonitor.removeProcess(processInfo.id);
       this.stopWatchingProcess(processInfo.id);
       this.logger.info(`Process stopped: ${processInfo.name}`, { processId: processInfo.id });
     });
 
     this.processOrchestrator.on('processRestarted', (processInfo) => {
       this.stateManager.updateProcess(processInfo.id, processInfo);
+      this.healthMonitor.updateProcess(processInfo);
       this.logger.info(`Process restarted: ${processInfo.name}`, { processId: processInfo.id });
     });
 
@@ -95,6 +103,63 @@ export class NodeDaemonCore extends EventEmitter {
         code,
         signal
       });
+    });
+
+    this.processOrchestrator.on('maxRestartsReached', (processInfo, instance) => {
+      this.logger.error(`Process ${processInfo.name} will not be restarted anymore`, {
+        processId: processInfo.id,
+        instanceId: instance.id,
+        restarts: instance.restarts
+      });
+    });
+  }
+
+  private setupHealthHandlers(): void {
+    this.healthMonitor.on('healthIssues', async (unhealthyProcesses) => {
+      for (const result of unhealthyProcesses) {
+        const processInfo = this.processOrchestrator.getProcess(result.processId);
+        if (!processInfo) continue;
+
+        const config = processInfo.config;
+        
+        // Check for high memory usage
+        if (config.autoRestartOnHighMemory && result.issues) {
+          const memoryIssue = result.issues.find(issue => issue.includes('High memory usage'));
+          if (memoryIssue) {
+            const threshold = config.memoryThreshold ? parseMemoryString(config.memoryThreshold) : parseMemoryString(DEFAULT_CONFIG.memoryThreshold);
+            if (result.memory > threshold) {
+              this.logger.warn(`Auto-restarting process due to high memory usage`, {
+                processId: processInfo.id,
+                processName: processInfo.name,
+                memory: formatMemory(result.memory),
+                threshold: config.memoryThreshold || DEFAULT_CONFIG.memoryThreshold
+              });
+              await this.processOrchestrator.restartProcess(processInfo.id);
+            }
+          }
+        }
+
+        // Check for high CPU usage
+        if (config.autoRestartOnHighCpu && result.issues) {
+          const cpuIssue = result.issues.find(issue => issue.includes('High CPU usage'));
+          if (cpuIssue) {
+            const threshold = config.cpuThreshold || DEFAULT_CONFIG.cpuThreshold;
+            if (result.cpu > threshold) {
+              this.logger.warn(`Auto-restarting process due to high CPU usage`, {
+                processId: processInfo.id,
+                processName: processInfo.name,
+                cpu: `${result.cpu.toFixed(1)}%`,
+                threshold: `${threshold}%`
+              });
+              await this.processOrchestrator.restartProcess(processInfo.id);
+            }
+          }
+        }
+      }
+    });
+
+    this.healthMonitor.on('systemMetrics', (metrics) => {
+      this.logger.debug('System metrics update', metrics);
     });
   }
 
@@ -273,8 +338,8 @@ export class NodeDaemonCore extends EventEmitter {
     return { success: true };
   }
 
-  private async handleRestart(data: { processId?: string; name?: string }): Promise<any> {
-    const { processId, name } = data;
+  private async handleRestart(data: { processId?: string; name?: string; graceful?: boolean }): Promise<any> {
+    const { processId, name, graceful } = data;
     
     let targetProcess;
     if (processId) {
@@ -289,7 +354,7 @@ export class NodeDaemonCore extends EventEmitter {
       throw new Error('Process not found');
     }
     
-    await this.processOrchestrator.restartProcess(targetProcess.id);
+    await this.processOrchestrator.restartProcess(targetProcess.id, graceful || false);
     return { success: true };
   }
 
@@ -424,6 +489,9 @@ export class NodeDaemonCore extends EventEmitter {
       // Start health check timer
       this.startHealthCheck();
       
+      // Start health monitoring
+      this.healthMonitor.startMonitoring();
+      
       // Restore any previously running processes
       await this.restoreProcesses();
       
@@ -536,6 +604,9 @@ export class NodeDaemonCore extends EventEmitter {
       
       // Stop file watcher
       this.fileWatcher.unwatch();
+      
+      // Stop health monitoring
+      this.healthMonitor.stopMonitoring();
       
       // Stop all processes
       await this.processOrchestrator.gracefulShutdown();

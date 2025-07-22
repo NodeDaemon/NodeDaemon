@@ -165,8 +165,14 @@ class NodeDaemonCLI {
         restartOptions.processId = options.target;
       }
       
+      if (options.graceful) {
+        restartOptions.graceful = true;
+      }
+      
       await this.client.restart(restartOptions);
-      console.log(Formatter.formatSuccess(`Process restarted successfully`));
+      console.log(Formatter.formatSuccess(
+        options.graceful ? 'Process gracefully reloaded successfully' : 'Process restarted successfully'
+      ));
       
     } finally {
       this.client.disconnect();

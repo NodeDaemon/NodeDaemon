@@ -14,7 +14,13 @@ export const DEFAULT_CONFIG = {
   instances: 1,
   maxRestarts: 10,
   restartDelay: 1000,
-  maxRestartDelay: 30000
+  maxRestartDelay: 30000,
+  minUptime: 10000, // 10 seconds - minimum uptime to reset restart counter
+  autoRestartOnCrash: true,
+  autoRestartOnHighMemory: false,
+  autoRestartOnHighCpu: false,
+  memoryThreshold: '512MB',
+  cpuThreshold: 80
 } as const;
 
 export const RESTART_STRATEGIES = {
