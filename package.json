@@ -6,6 +6,9 @@
   "bin": {
     "nodedaemon": "dist/cli/index.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc && node build.js",
     "build:watch": "tsc --watch",
