@@ -483,7 +483,7 @@ export class ProcessOrchestrator extends EventEmitter {
     }
   }
 
-  private async gracefulReload(processInfo: ProcessInfo): Promise<void> {
+  public async gracefulReload(processInfo: ProcessInfo): Promise<void> {
     this.logger.info(`Starting graceful reload for ${processInfo.name}`, { processId: processInfo.id });
     
     const instanceCount = this.resolveInstanceCount(processInfo.config.instances);

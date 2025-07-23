@@ -35,6 +35,8 @@ export class CommandParser {
         return this.parseLogsCommand(commandArgs);
       case 'shutdown':
         return this.parseShutdownCommand(commandArgs);
+      case 'webui':
+        return this.parseWebUICommand(commandArgs);
       case 'help':
       case '--help':
       case '-h':
@@ -319,6 +321,54 @@ export class CommandParser {
     };
   }
 
+  private parseWebUICommand(args: string[]): ParsedCommand {
+    if (args.length === 0) {
+      throw new Error('WebUI subcommand required: start, stop, status');
+    }
+
+    const subcommand = args[0];
+    const subArgs = args.slice(1);
+
+    switch (subcommand) {
+      case 'start':
+        const { values: startValues } = parseArgs({
+          args: subArgs,
+          options: {
+            port: { type: 'string', short: 'p' },
+            host: { type: 'string', short: 'h' },
+            username: { type: 'string', short: 'u' },
+            password: { type: 'string' }
+          },
+          allowPositionals: false
+        });
+        return {
+          command: 'webui',
+          options: {
+            action: 'start',
+            ...startValues
+          },
+          args: []
+        };
+
+      case 'stop':
+        return {
+          command: 'webui',
+          options: { action: 'stop' },
+          args: []
+        };
+
+      case 'status':
+        return {
+          command: 'webui',
+          options: { action: 'status' },
+          args: []
+        };
+
+      default:
+        throw new Error(`Unknown webui subcommand: ${subcommand}`);
+    }
+  }
+
   public getHelp(): string {
     return `
 NodeDaemon - Production-ready Node.js process manager
@@ -334,6 +384,7 @@ COMMANDS:
   list|ls [options]         List all processes
   status [name|id]          Show process status
   logs <name|id> [options]  Show process logs
+  webui <subcommand>        Manage Web UI
   shutdown                  Shutdown the daemon
   help                      Show this help
   version                   Show version
@@ -385,6 +436,17 @@ LOGS OPTIONS:
   -f, --follow             Follow log output
   --json                   Output as JSON
 
+WEBUI SUBCOMMANDS:
+  start                    Start the Web UI server
+  stop                     Stop the Web UI server
+  status                   Show Web UI status
+
+WEBUI START OPTIONS:
+  -p, --port <port>        Port to listen on (default: 8080)
+  -h, --host <host>        Host to bind to (default: 127.0.0.1)
+  -u, --username <user>    Basic auth username
+  --password <pass>        Basic auth password
+
 EXAMPLES:
   nodedaemon daemon -d                           # Start daemon in background
   nodedaemon start app.js -n myapp -i 4 -w      # Start app with 4 instances and watch
@@ -393,6 +455,8 @@ EXAMPLES:
   nodedaemon stop myapp                          # Stop process by name
   nodedaemon logs myapp -l 50 -f                # Follow last 50 log lines
   nodedaemon status                              # Show daemon status
+  nodedaemon webui start -p 3000                # Start Web UI on port 3000
+  nodedaemon webui status                        # Check Web UI status
   nodedaemon shutdown                            # Shutdown daemon
 `;
   }

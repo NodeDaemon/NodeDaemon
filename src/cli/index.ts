@@ -40,6 +40,9 @@ class NodeDaemonCLI {
         case 'shutdown':
           await this.handleShutdown(parsed.options);
           break;
+        case 'webui':
+          await this.handleWebUI(parsed.options);
+          break;
         case 'help':
           this.showHelp();
           break;
@@ -323,6 +326,100 @@ class NodeDaemonCLI {
     } catch (error) {
       if (error.message.includes('not running')) {
         console.log(Formatter.formatInfo('Daemon is not running'));
+      } else {
+        throw error;
+      }
+    } finally {
+      this.client.disconnect();
+    }
+  }
+
+  private async handleWebUI(options: any): Promise<void> {
+    try {
+      await this.client.connect();
+      
+      switch (options.action) {
+        case 'start':
+          const config: any = {
+            enabled: true
+          };
+          
+          if (options.port) {
+            config.port = parseInt(options.port);
+            if (isNaN(config.port)) {
+              throw new Error('Invalid port number');
+            }
+          }
+          
+          if (options.host) {
+            config.host = options.host;
+          }
+          
+          if (options.username && options.password) {
+            config.auth = {
+              username: options.username,
+              password: options.password
+            };
+          } else if (options.username || options.password) {
+            throw new Error('Both username and password are required for authentication');
+          }
+          
+          const startResult = await this.client.sendMessage('webui', { action: 'set', config });
+          
+          if (startResult.success) {
+            const webConfig = startResult.data;
+            console.log(Formatter.formatSuccess('Web UI started'));
+            console.log(Formatter.formatInfo(`URL: http://${webConfig.host}:${webConfig.port}`));
+            if (webConfig.auth) {
+              console.log(Formatter.formatWarning('Authentication enabled'));
+            }
+          } else {
+            throw new Error(startResult.error || 'Failed to start Web UI');
+          }
+          break;
+          
+        case 'stop':
+          const stopResult = await this.client.sendMessage('webui', { 
+            action: 'set', 
+            config: { enabled: false } 
+          });
+          
+          if (stopResult.success) {
+            console.log(Formatter.formatSuccess('Web UI stopped'));
+          } else {
+            throw new Error(stopResult.error || 'Failed to stop Web UI');
+          }
+          break;
+          
+        case 'status':
+          const statusResult = await this.client.sendMessage('webui', { action: 'status' });
+          
+          if (statusResult.success) {
+            const config = statusResult.data;
+            if (config && config.enabled) {
+              console.log(Formatter.formatSuccess('Web UI is running'));
+              console.log(Formatter.formatInfo(`URL: http://${config.host}:${config.port}`));
+              if (config.auth) {
+                console.log(Formatter.formatInfo('Authentication: Enabled'));
+              } else {
+                console.log(Formatter.formatInfo('Authentication: Disabled'));
+              }
+            } else {
+              console.log(Formatter.formatInfo('Web UI is not running'));
+            }
+          } else {
+            throw new Error(statusResult.error || 'Failed to get Web UI status');
+          }
+          break;
+          
+        default:
+          throw new Error(`Unknown webui action: ${options.action}`);
+      }
+      
+    } catch (error) {
+      if (error.message.includes('not running')) {
+        console.log(Formatter.formatError('Daemon is not running'));
+        console.log(Formatter.formatInfo('Start the daemon first: nodedaemon daemon'));
       } else {
         throw error;
       }

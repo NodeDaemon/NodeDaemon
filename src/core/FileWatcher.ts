@@ -40,9 +40,8 @@ export class FileWatcher extends EventEmitter {
     recursive?: boolean;
     ignored?: string[];
   } = {}): void {
-    if (this.isWatching) {
-      this.unwatch();
-    }
+    // Don't unwatch existing paths, just add new ones
+    // This was the bug - it was unwatching all previous paths!
 
     const pathsArray = Array.isArray(paths) ? paths : [paths];
     const { ignoreInitial = true, recursive = true, ignored = [] } = options;
@@ -75,10 +74,13 @@ export class FileWatcher extends EventEmitter {
         return;
       }
 
+      console.log(`[FileWatcher] Watching path: ${path} (recursive: ${recursive})`);
+      
       const watcher = watch(path, { recursive }, (eventType, filename) => {
         if (!filename) return;
         
         const fullPath = resolve(path, filename);
+        console.log(`[FileWatcher] Event: ${eventType} on ${fullPath}`);
         this.handleFileEvent(eventType, fullPath);
       });
 

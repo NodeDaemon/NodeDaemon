@@ -71,3 +71,13 @@ export const SIGNALS = {
   SIGKILL: 'SIGKILL',
   SIGHUP: 'SIGHUP'
 } as const;
+
+export const DEFAULT_WEB_UI_CONFIG = {
+  enabled: false,
+  port: 8080,
+  host: '127.0.0.1',
+  auth: null
+} as const;
+
+export const WEB_UI_DIR = join(NODEDAEMON_DIR, 'web');
+export const WEB_UI_STATIC_DIR = join(WEB_UI_DIR, 'static');

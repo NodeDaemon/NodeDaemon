@@ -49,7 +49,7 @@ export interface ProcessInstance {
 
 export interface IPCMessage {
   id: string;
-  type: 'start' | 'stop' | 'restart' | 'list' | 'logs' | 'status' | 'ping' | 'shutdown';
+  type: 'start' | 'stop' | 'restart' | 'list' | 'logs' | 'status' | 'ping' | 'shutdown' | 'webui';
   data?: any;
   timestamp: number;
 }
@@ -76,6 +76,7 @@ export interface DaemonState {
   version: string;
   startedAt: number;
   pid: number;
+  webUIConfig?: WebUIConfig;
 }
 
 export interface FileWatchEvent {
@@ -99,4 +100,27 @@ export type ProcessStrategy = 'fork' | 'spawn' | 'cluster';
 export interface ClusterOptions {
   instances: number;
   strategy: ProcessStrategy;
+}
+
+export interface WebUIConfig {
+  enabled: boolean;
+  port: number;
+  host: string;
+  auth?: {
+    username: string;
+    password: string;
+  };
+}
+
+export interface WebSocketMessage {
+  type: 'subscribe' | 'unsubscribe' | 'command' | 'event';
+  action?: string;
+  processId?: string;
+  data?: any;
+}
+
+export interface WebSocketEvent {
+  type: 'process_update' | 'log' | 'metric' | 'status';
+  data: any;
+  timestamp: number;
 }

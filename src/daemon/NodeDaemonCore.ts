@@ -3,12 +3,13 @@ import { unlink } from 'fs';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 
-import { IPCMessage, IPCResponse, ProcessConfig } from '../types';
+import { IPCMessage, IPCResponse, ProcessConfig, WebUIConfig } from '../types';
 import { ProcessOrchestrator } from '../core/ProcessOrchestrator';
 import { FileWatcher } from '../core/FileWatcher';
 import { LogManager } from '../core/LogManager';
 import { StateManager } from '../core/StateManager';
 import { HealthMonitor } from '../core/HealthMonitor';
+import { WebUIServer } from '../core/WebUIServer';
 
 import { generateId, ensureDir, parseMemoryString, formatMemory } from '../utils/helpers';
 import { 
@@ -28,10 +29,12 @@ export class NodeDaemonCore extends EventEmitter {
   private processOrchestrator: ProcessOrchestrator;
   private fileWatcher: FileWatcher;
   private healthMonitor: HealthMonitor;
+  private webUIServer: WebUIServer;
   private clients: Set<Socket> = new Set();
   private isShuttingDown: boolean = false;
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private watchedProcesses: Map<string, string[]> = new Map(); // processId -> watch paths
+  private webUIConfig: WebUIConfig | null = null;
 
   constructor() {
     super();
@@ -42,6 +45,7 @@ export class NodeDaemonCore extends EventEmitter {
     this.processOrchestrator = new ProcessOrchestrator(this.logger);
     this.fileWatcher = new FileWatcher();
     this.healthMonitor = new HealthMonitor(this.logger);
+    this.webUIServer = new WebUIServer();
     
     // Create IPC server
     this.server = createServer();
@@ -50,6 +54,7 @@ export class NodeDaemonCore extends EventEmitter {
     this.setupFileWatchHandlers();
     this.setupProcessHandlers();
     this.setupHealthHandlers();
+    this.setupWebUIHandlers();
     this.setupSignalHandlers();
   }
 
@@ -161,6 +166,143 @@ export class NodeDaemonCore extends EventEmitter {
     this.healthMonitor.on('systemMetrics', (metrics) => {
       this.logger.debug('System metrics update', metrics);
     });
+
+    // Update process instance metrics when health monitor emits them
+    this.healthMonitor.on('processMetrics', (processId, metrics) => {
+      const processInfo = this.processOrchestrator.getProcess(processId);
+      if (processInfo) {
+        // Find the instance by PID
+        for (const instance of processInfo.instances) {
+          if (instance.pid) {
+            // Update the instance metrics
+            instance.memory = metrics.memory;
+            instance.cpu = metrics.cpu;
+          }
+        }
+      }
+    });
+  }
+
+  private setupWebUIHandlers(): void {
+    // API handlers
+    this.webUIServer.on('api:list', (callback) => {
+      const processes = this.processOrchestrator.getProcesses();
+      // Transform processes to include aggregated data for frontend
+      const transformedProcesses = processes.map(p => {
+        const mainInstance = p.instances[0];
+        const totalMemory = p.instances.reduce((sum, i) => sum + (i.memory || 0), 0);
+        const totalCpu = p.instances.reduce((sum, i) => sum + (i.cpu || 0), 0);
+        const uptime = mainInstance && mainInstance.uptime ? 
+          Math.floor((Date.now() - mainInstance.uptime) / 1000) : 0;
+        
+        return {
+          ...p,
+          memory: totalMemory,
+          cpu: totalCpu,
+          uptime: uptime
+        };
+      });
+      callback(transformedProcesses);
+    });
+
+    this.webUIServer.on('api:status', (callback) => {
+      const status = {
+        version: '1.0.2',
+        uptime: process.uptime(),
+        pid: process.pid,
+        processCount: this.processOrchestrator.getProcesses().length,
+        memory: process.memoryUsage()
+      };
+      callback(status);
+    });
+
+    this.webUIServer.on('api:start', async (processId, callback) => {
+      try {
+        await this.processOrchestrator.startProcess(processId);
+        callback({ success: true });
+      } catch (error) {
+        callback({ error: error.message });
+      }
+    });
+
+    this.webUIServer.on('api:stop', async (processId, callback) => {
+      try {
+        await this.processOrchestrator.stopProcess(processId);
+        callback({ success: true });
+      } catch (error) {
+        callback({ error: error.message });
+      }
+    });
+
+    this.webUIServer.on('api:restart', async (processId, callback) => {
+      try {
+        await this.processOrchestrator.restartProcess(processId);
+        callback({ success: true });
+      } catch (error) {
+        callback({ error: error.message });
+      }
+    });
+
+    this.webUIServer.on('api:reload', async (processId, callback) => {
+      try {
+        const processInfo = this.processOrchestrator.getProcess(processId);
+        if (!processInfo) {
+          throw new Error('Process not found');
+        }
+        if (!processInfo.config.instances || 
+            (typeof processInfo.config.instances === 'number' && processInfo.config.instances <= 1)) {
+          throw new Error('Reload is only available for cluster mode');
+        }
+        await this.processOrchestrator.gracefulReload(processInfo);
+        callback({ success: true });
+      } catch (error) {
+        callback({ error: error.message });
+      }
+    });
+
+    // WebSocket handlers
+    this.webUIServer.on('ws:list', (data, callback) => {
+      const processes = this.processOrchestrator.getProcesses();
+      // Transform processes to include aggregated data for frontend
+      const transformedProcesses = processes.map(p => {
+        const mainInstance = p.instances[0];
+        const totalMemory = p.instances.reduce((sum, i) => sum + (i.memory || 0), 0);
+        const totalCpu = p.instances.reduce((sum, i) => sum + (i.cpu || 0), 0);
+        const uptime = mainInstance && mainInstance.uptime ? 
+          Math.floor((Date.now() - mainInstance.uptime) / 1000) : 0;
+        
+        return {
+          ...p,
+          memory: totalMemory,
+          cpu: totalCpu,
+          uptime: uptime
+        };
+      });
+      callback(transformedProcesses);
+    });
+
+    // Process event forwarding
+    this.processOrchestrator.on('processStarted', (processInfo) => {
+      this.webUIServer.broadcastProcessUpdate(processInfo);
+    });
+
+    this.processOrchestrator.on('processStopped', (processInfo) => {
+      this.webUIServer.broadcastProcessUpdate(processInfo);
+    });
+
+    this.processOrchestrator.on('processRestarted', (processInfo) => {
+      this.webUIServer.broadcastProcessUpdate(processInfo);
+    });
+
+    // Log forwarding
+    this.logger.on('log', (logEntry) => {
+      this.webUIServer.broadcastLog(logEntry);
+    });
+
+    // Health metrics forwarding
+    this.healthMonitor.on('processMetrics', (processId, metrics) => {
+      this.webUIServer.broadcastMetric(processId, metrics);
+    });
   }
 
   private setupSignalHandlers(): void {
@@ -179,17 +321,36 @@ export class NodeDaemonCore extends EventEmitter {
   }
 
   private handleFileChange(event: any): void {
+    this.logger.info(`handleFileChange called`, {
+      event,
+      watchedProcesses: Array.from(this.watchedProcesses.entries())
+    });
+    
     // Find processes that should be restarted due to file changes
     const processesToRestart = new Set<string>();
+    const path = require('path');
     
     for (const [processId, watchPaths] of this.watchedProcesses.entries()) {
       for (const watchPath of watchPaths) {
-        if (event.path.startsWith(watchPath)) {
+        // Resolve watch path to absolute path for comparison
+        const absoluteWatchPath = path.resolve(watchPath);
+        if (event.path.startsWith(absoluteWatchPath)) {
+          this.logger.info(`File change matches watch path`, {
+            processId,
+            watchPath,
+            absoluteWatchPath,
+            eventPath: event.path
+          });
           processesToRestart.add(processId);
           break;
         }
       }
     }
+    
+    this.logger.info(`Processes to restart`, {
+      count: processesToRestart.size,
+      processIds: Array.from(processesToRestart)
+    });
     
     // Restart affected processes
     for (const processId of processesToRestart) {
@@ -274,6 +435,10 @@ export class NodeDaemonCore extends EventEmitter {
           responseData = await this.handleShutdown();
           break;
           
+        case 'webui':
+          responseData = await this.handleWebUI(data);
+          break;
+          
         default:
           throw new Error(`Unknown command: ${type}`);
       }
@@ -300,10 +465,19 @@ export class NodeDaemonCore extends EventEmitter {
     if (config.watch === true) {
       // Watch the script directory
       const watchPaths = [require('path').dirname(config.script)];
+      this.logger.info(`Setting up file watching for process ${processId}`, {
+        processId,
+        watchPaths,
+        scriptPath: config.script
+      });
       this.watchedProcesses.set(processId, watchPaths);
       this.fileWatcher.watch(watchPaths, { recursive: true });
     } else if (Array.isArray(config.watch)) {
       // Watch specific paths
+      this.logger.info(`Setting up file watching for process ${processId}`, {
+        processId,
+        watchPaths: config.watch
+      });
       this.watchedProcesses.set(processId, config.watch);
       this.fileWatcher.watch(config.watch, { recursive: true });
     }
@@ -428,6 +602,27 @@ export class NodeDaemonCore extends EventEmitter {
     return { success: true };
   }
 
+  private async handleWebUI(data: any): Promise<any> {
+    if (!data || !data.action) {
+      throw new Error('WebUI action required');
+    }
+
+    switch (data.action) {
+      case 'set':
+        if (!data.config) {
+          throw new Error('WebUI config required');
+        }
+        await this.setWebUIConfig(data.config);
+        return this.getWebUIConfig();
+
+      case 'status':
+        return this.getWebUIConfig();
+
+      default:
+        throw new Error(`Unknown webui action: ${data.action}`);
+    }
+  }
+
   private sendResponse(socket: Socket, id: string, success: boolean, data?: any): void {
     const response: IPCResponse = {
       id,
@@ -494,6 +689,9 @@ export class NodeDaemonCore extends EventEmitter {
       
       // Restore any previously running processes
       await this.restoreProcesses();
+      
+      // Start Web UI if configured
+      await this.startWebUI();
       
       this.emit('started');
       
@@ -580,6 +778,101 @@ export class NodeDaemonCore extends EventEmitter {
     }
   }
 
+  private async startWebUI(): Promise<void> {
+    this.logger.debug('startWebUI called', { currentConfig: this.webUIConfig });
+    
+    // Don't reload config from state if we already have it
+    // This was causing the issue - we were overwriting the config we just set!
+    if (!this.webUIConfig) {
+      // Load web UI config from state or use defaults
+      const savedState = this.stateManager.getState();
+      if (savedState.webUIConfig) {
+        this.webUIConfig = savedState.webUIConfig;
+      } else {
+        // Use defaults from constants
+        this.webUIConfig = {
+          enabled: false,
+          port: 8080,
+          host: '127.0.0.1'
+        };
+      }
+    }
+
+    this.logger.debug('WebUI config after check', { config: this.webUIConfig });
+
+    if (this.webUIConfig && this.webUIConfig.enabled) {
+      try {
+        // Update config if server already exists
+        if (this.webUIServer.isRunning()) {
+          await this.webUIServer.stop();
+        }
+        
+        // Update config and restart
+        this.webUIServer = new WebUIServer(this.webUIConfig);
+        
+        // Re-setup handlers (they were already setup in constructor)
+        this.setupWebUIHandlers();
+        
+        await this.webUIServer.start();
+        this.logger.info('Web UI started', {
+          port: this.webUIConfig.port,
+          host: this.webUIConfig.host
+        });
+      } catch (error) {
+        this.logger.error('Failed to start Web UI', { 
+          error: error.message,
+          stack: error.stack 
+        });
+      }
+    }
+  }
+
+  public async setWebUIConfig(config: Partial<WebUIConfig>): Promise<void> {
+    const wasEnabled = this.webUIConfig?.enabled;
+    
+    // Ensure we have a base config
+    if (!this.webUIConfig) {
+      this.webUIConfig = {
+        enabled: false,
+        port: 8080,
+        host: '127.0.0.1'
+      };
+    }
+    
+    this.webUIConfig = { ...this.webUIConfig, ...config };
+    
+    // Save config to state
+    const state = this.stateManager.getState();
+    state.webUIConfig = this.webUIConfig;
+    this.stateManager.forceSave();
+
+    // Handle enable/disable
+    this.logger.debug('WebUI config change', { 
+      wasEnabled, 
+      isEnabled: this.webUIConfig.enabled,
+      config: this.webUIConfig 
+    });
+    
+    if (!wasEnabled && this.webUIConfig.enabled) {
+      // Start Web UI
+      this.logger.info('Starting Web UI...');
+      await this.startWebUI();
+    } else if (wasEnabled && !this.webUIConfig.enabled) {
+      // Stop Web UI
+      this.logger.info('Stopping Web UI...');
+      await this.webUIServer.stop();
+    } else if (wasEnabled && this.webUIConfig.enabled) {
+      // Restart Web UI with new config
+      this.logger.info('Restarting Web UI...');
+      await this.webUIServer.stop();
+      await this.startWebUI();
+    }
+  }
+
+  public getWebUIConfig(): WebUIConfig | null {
+    return this.webUIConfig;
+  }
+
   public async gracefulShutdown(reason: string = 'unknown'): Promise<void> {
     if (this.isShuttingDown) return;
     
@@ -607,6 +900,9 @@ export class NodeDaemonCore extends EventEmitter {
       
       // Stop health monitoring
       this.healthMonitor.stopMonitoring();
+      
+      // Stop Web UI
+      await this.webUIServer.stop();
       
       // Stop all processes
       await this.processOrchestrator.gracefulShutdown();

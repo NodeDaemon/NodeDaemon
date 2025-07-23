@@ -176,6 +176,12 @@ export class HealthMonitor extends EventEmitter {
       history.shift();
     }
     this.metrics.set(pid, history);
+
+    // Emit metrics for WebUI
+    this.emit('processMetrics', processId, {
+      cpu: metrics.cpu.percent,
+      memory: metrics.memory.rss
+    });
     
     // Check for memory leaks
     this.detectMemoryLeak(pid, history, issues);
@@ -343,15 +349,16 @@ export class HealthMonitor extends EventEmitter {
       
       try {
         const lines = stdout.trim().split('\n');
-        const dataLine = lines.find(line => line.includes(','));
+        // Skip header line and find data line
+        const dataLine = lines.find(line => line.includes(',') && !line.includes('Node,'));
         
         if (!dataLine) {
           return callback(new Error('Process not found in wmic output'));
         }
         
         const data = dataLine.split(',');
-        const workingSet = parseInt(data[4], 10) || 0; // Working set (RSS equivalent)
-        const virtualSize = parseInt(data[3], 10) || 0;
+        const workingSet = parseInt(data[3], 10) || 0; // Working set (RSS equivalent)
+        const virtualSize = parseInt(data[2], 10) || 0;
         
         // Now get CPU usage using typeperf for more accurate results
         const cpuCmd = `typeperf "\\Process(*)\\% Processor Time" -sc 1`;

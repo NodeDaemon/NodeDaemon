@@ -2,6 +2,7 @@ import { createWriteStream, existsSync, readdirSync, statSync, unlinkSync, renam
 import { join } from 'path';
 import { createGzip } from 'zlib';
 import { WriteStream } from 'fs';
+import { EventEmitter } from 'events';
 import { LogEntry } from '../types';
 import { ensureDir } from '../utils/helpers';
 import { 
@@ -12,13 +13,14 @@ import {
   LOG_LEVELS 
 } from '../utils/constants';
 
-export class LogManager {
+export class LogManager extends EventEmitter {
   private logStreams: Map<string, WriteStream> = new Map();
   private logBuffer: LogEntry[] = [];
   private bufferIndex: number = 0;
   private isShuttingDown: boolean = false;
 
   constructor() {
+    super();
     ensureDir(LOG_DIR);
     this.setupMainLogStream();
   }
@@ -46,6 +48,9 @@ export class LogManager {
     if (this.isShuttingDown) return;
 
     this.addToBuffer(entry);
+    
+    // Emit log event for WebUI
+    this.emit('log', entry);
     
     const logLine = this.formatLogEntry(entry);
     const streamName = entry.processId || 'daemon';

@@ -230,6 +230,23 @@ class Builder {
       fs.copyFileSync('LICENSE', path.join(BUILD_DIR, 'LICENSE'));
     }
 
+    // Copy web directory
+    const webSrc = 'web';
+    const webDist = path.join(DIST_DIR, 'web');
+    if (fs.existsSync(webSrc)) {
+      if (!fs.existsSync(webDist)) {
+        fs.mkdirSync(webDist, { recursive: true });
+      }
+      
+      const files = fs.readdirSync(webSrc);
+      files.forEach(file => {
+        fs.copyFileSync(
+          path.join(webSrc, file),
+          path.join(webDist, file)
+        );
+      });
+    }
+
     this.success('Assets copied');
   }
 
