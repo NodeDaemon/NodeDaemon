@@ -142,7 +142,7 @@
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
                     </span>
-                    <span class="text-sm font-medium">v1.0.2 Released</span>
+                    <span class="text-sm font-medium">v1.1.0 Released</span>
                 </div>
                 
                 <!-- Title -->
@@ -226,6 +226,7 @@
                     { icon: '⚡', title: 'Cluster Mode', desc: 'Scale across CPU cores with zero-downtime graceful reload', gradient: 'from-blue-500 to-cyan-500' },
                     { icon: '👁️', title: 'File Watching', desc: 'Intelligent file watching with debouncing for auto-reload', gradient: 'from-green-500 to-teal-500' },
                     { icon: '📊', title: 'Resource Monitoring', desc: 'Auto-restart on high CPU/memory with configurable thresholds', gradient: 'from-red-500 to-pink-500' },
+                    { icon: '🌐', title: 'Web UI Dashboard', desc: 'Real-time monitoring with live metrics and process control', gradient: 'from-purple-500 to-blue-500' },
                     { icon: '🌍', title: 'Environment Support', desc: 'Load .env files automatically with priority-based merging', gradient: 'from-yellow-500 to-orange-500' },
                     { icon: '💾', title: 'State Persistence', desc: 'Restore processes automatically after daemon restart', gradient: 'from-indigo-500 to-purple-500' },
                     { icon: '📝', title: 'Advanced Logging', desc: 'Structured JSON logs with rotation and compression', gradient: 'from-cyan-500 to-blue-500' },
@@ -242,6 +243,125 @@
                         </div>
                     </div>
                 </template>
+            </div>
+        </div>
+    </section>
+
+    <!-- Web UI Section -->
+    <section class="py-20 px-4 relative bg-gradient-to-b from-slate-950 to-slate-900">
+        <div class="container mx-auto max-w-7xl">
+            <div class="text-center mb-16 space-y-4">
+                <h2 class="text-4xl md:text-5xl font-bold">
+                    <span class="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
+                        Web UI Dashboard
+                    </span>
+                </h2>
+                <p class="text-xl text-slate-400 max-w-2xl mx-auto">
+                    Monitor and control your processes with a beautiful, real-time web interface
+                </p>
+            </div>
+            
+            <div class="grid lg:grid-cols-2 gap-12 items-center">
+                <div class="space-y-6">
+                    <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Real-time Metrics</h3>
+                            <p class="text-slate-400">Live CPU, memory, and uptime monitoring with beautiful charts and instant updates via WebSocket</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Process Control</h3>
+                            <p class="text-slate-400">Start, stop, restart, and reload processes directly from your browser with one click</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Zero Dependencies</h3>
+                            <p class="text-slate-400">Built-in WebSocket server and HTTP handling without any external packages</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8">
+                        <code class="inline-block bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-lg px-6 py-3 font-mono text-sm">
+                            nodedaemon webui start --port 9999
+                        </code>
+                    </div>
+                </div>
+                
+                <div class="relative">
+                    <div class="absolute inset-0 bg-gradient-to-r from-purple-600 to-blue-600 rounded-3xl blur-3xl opacity-20"></div>
+                    <div class="relative bg-slate-900/80 backdrop-blur border border-slate-800 rounded-3xl p-8 overflow-hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold">Process Monitor</h3>
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                                <span class="text-sm text-slate-400">Live</span>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <div class="bg-slate-800/50 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="font-medium">api-server</span>
+                                    <span class="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded">RUNNING</span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-4 text-sm">
+                                    <div>
+                                        <span class="text-slate-500">CPU</span>
+                                        <p class="font-mono">12.5%</p>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Memory</span>
+                                        <p class="font-mono">384MB</p>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Uptime</span>
+                                        <p class="font-mono">2d 14h</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-slate-800/50 rounded-lg p-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="font-medium">worker-process</span>
+                                    <span class="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded">RUNNING</span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-4 text-sm">
+                                    <div>
+                                        <span class="text-slate-500">CPU</span>
+                                        <p class="font-mono">45.2%</p>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Memory</span>
+                                        <p class="font-mono">512MB</p>
+                                    </div>
+                                    <div>
+                                        <span class="text-slate-500">Uptime</span>
+                                        <p class="font-mono">5h 32m</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
@@ -443,6 +563,7 @@
                             { name: 'start', desc: 'Start a new process with advanced options', example: 'nodedaemon start app.js --name myapp -i 4 --auto-restart-memory --memory-threshold 512MB' },
                             { name: 'stop', desc: 'Stop a running process', example: 'nodedaemon stop myapp' },
                             { name: 'restart', desc: 'Restart with graceful reload', example: 'nodedaemon restart myapp --graceful' },
+                            { name: 'webui', desc: 'Start Web UI dashboard', example: 'nodedaemon webui start --port 9999' },
                             { name: 'env', desc: 'Load environment from file', example: 'nodedaemon start app.js --env-file .env.production' },
                             { name: 'monitor', desc: 'Auto-restart on high CPU', example: 'nodedaemon start app.js --auto-restart-cpu --cpu-threshold 80' },
                             { name: 'status', desc: 'Check daemon and health status', example: 'nodedaemon status' }
@@ -479,7 +600,7 @@
                 <div>
                     <h3 class="text-2xl font-bold mb-6">Configuration</h3>
                     <div class="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl p-6 overflow-hidden">
-                        <pre class="text-sm overflow-x-auto"><code class="language-javascript text-slate-300">// Start with all v1.0.2 features
+                        <pre class="text-sm overflow-x-auto"><code class="language-javascript text-slate-300">// Start with all v1.1.0 features
 nodedaemon start app.js \
   <span class="text-purple-400">--name</span> <span class="text-green-400">'api-server'</span> \
   <span class="text-purple-400">--instances</span> <span class="text-blue-400">4</span> \

@@ -2,7 +2,7 @@
 
 A production-ready Node.js process manager with **zero external dependencies**, built entirely with Node.js built-in modules.
 
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/nodedaemon/nodedaemon/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/nodedaemon/nodedaemon/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org)
 
@@ -15,7 +15,8 @@ A production-ready Node.js process manager with **zero external dependencies**, 
 - **File Watching**: Intelligent file watching with debouncing for auto-reload
 - **Daemon Mode**: Run as background service with automatic startup
 
-### v1.0.2 New Features 🎉
+### v1.1.0 New Features 🎉
+- **Web UI Dashboard**: Real-time process monitoring with live metrics
 - **Resource-based Auto-restart**: Automatically restart processes on high CPU/memory usage
 - **Environment File Support**: Load `.env` files with priority-based merging
 - **Graceful Reload**: Zero-downtime restart for cluster mode applications
@@ -28,6 +29,7 @@ A production-ready Node.js process manager with **zero external dependencies**, 
 - **Log Management**: Structured logging with rotation and compression
 - **Health Monitoring**: Real-time CPU and memory monitoring with configurable thresholds
 - **Graceful Shutdown**: Proper cleanup and signal handling for all processes
+- **WebSocket Support**: Real-time updates for Web UI without external dependencies
 
 ![Features](features.jpg)
 
@@ -155,6 +157,35 @@ nodedaemon logs myapp --follow
 # JSON output
 nodedaemon list --json
 ```
+
+### Web UI
+
+NodeDaemon includes a powerful web interface for real-time monitoring and control:
+
+```bash
+# Start Web UI on default port (8080)
+nodedaemon webui start
+
+# Start on custom port
+nodedaemon webui start --port 9999
+
+# Start with authentication
+nodedaemon webui start --username admin --password secret
+
+# Stop Web UI
+nodedaemon webui stop
+
+# Check Web UI status
+nodedaemon webui status
+```
+
+**Web UI Features:**
+- Real-time process monitoring with live CPU/memory metrics
+- Interactive process control (start, stop, restart, reload)
+- Live log streaming
+- Responsive dark theme design
+- WebSocket-based updates without polling
+- Zero external dependencies
 
 ## Advanced Examples
 
@@ -286,6 +317,13 @@ NodeDaemon consists of several core components:
 - Memory leak detection
 - Automatic restart on threshold violations
 
+### Web UI Server (`WebUIServer`)
+- Built-in HTTP server without external dependencies
+- Custom WebSocket implementation for real-time updates
+- RESTful API for process control
+- Static file serving for web interface
+- Optional authentication support
+
 ## API Reference
 
 ### CLI Commands
@@ -339,6 +377,20 @@ Options:
 
 #### `shutdown`
 Shutdown the daemon.
+
+#### `webui <action> [options]`
+Manage the Web UI.
+
+Actions:
+- `start`: Start the Web UI server
+- `stop`: Stop the Web UI server
+- `status`: Show Web UI status
+
+Options:
+- `--port <port>`: Port to listen on (default: 8080)
+- `--host <host>`: Host to bind to (default: 127.0.0.1)
+- `--username <username>`: Enable authentication with username
+- `--password <password>`: Password for authentication
 
 ## Development
 

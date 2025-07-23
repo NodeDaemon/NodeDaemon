@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2025-07-23
+
+### Added
+- **Web UI Dashboard** - Real-time process monitoring and control interface
+  - Live CPU, memory, and uptime metrics with WebSocket updates
+  - Interactive process control (start, stop, restart, reload)
+  - Beautiful dark theme responsive design
+  - Zero external dependencies - built-in HTTP and WebSocket servers
+  - Authentication support with username/password
+  - Configurable port and host binding
+- New CLI commands for Web UI management:
+  - `nodedaemon webui start` - Start the Web UI server
+  - `nodedaemon webui stop` - Stop the Web UI server  
+  - `nodedaemon webui status` - Check Web UI status
+- WebSocket protocol implementation without external packages
+- RESTful API endpoints for process management
+- Real-time log streaming support (foundation laid)
+
+### Fixed
+- File watching now correctly detects changes and triggers restarts
+  - Fixed path comparison issue (relative vs absolute paths)
+  - Removed incorrect unwatch behavior in FileWatcher
+- Memory usage reporting on Windows systems
+  - Fixed WMIC output parsing for accurate memory metrics
+  - Corrected array indices for memory data extraction
+- Process metrics now properly aggregated at process level
+  - CPU and memory data correctly summed across instances
+  - Uptime calculated from instance start time
+
+### Changed
+- Enhanced API response format to include aggregated metrics
+- Improved health monitoring with proper metric updates
+- Better error handling in Web UI operations
+
 ## [1.0.2] - 2025-07-22
 
 ### Added

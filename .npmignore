@@ -10,11 +10,13 @@ tsconfig.json
 
 # Test files
 tests/
+test-scenarios/
 *.test.js
 *.spec.js
 
 # Documentation source
 docs/
+website/
 *.md
 !README.md
 !LICENSE
