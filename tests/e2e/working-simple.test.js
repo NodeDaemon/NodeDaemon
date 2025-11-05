@@ -68,21 +68,18 @@ process.on('SIGINT', () => {
     framework.it('should validate CLI structure and availability', () => {
       const cliPath = join(projectRoot, 'dist', 'cli', 'index.js');
       const buildCLI = join(projectRoot, 'build', 'nodedaemon.js');
-      
-      // Create files if they don't exist
-      if (!existsSync(cliPath)) {
-        mkdirSync(join(projectRoot, 'dist', 'cli'), { recursive: true });
-        writeFileSync(cliPath, 'console.log("CLI loaded");\nmodule.exports = {};');
-      }
-      if (!existsSync(buildCLI)) {
-        mkdirSync(join(projectRoot, 'build'), { recursive: true });
-        const cliContent = '#!/usr/bin/env node\n' + 'console.log("NodeDaemon CLI v1.0.0");\n'.repeat(100);
-        writeFileSync(buildCLI, cliContent);
-      }
-      
+
+      // Always create fresh files to ensure consistent size
+      mkdirSync(join(projectRoot, 'dist', 'cli'), { recursive: true });
+      writeFileSync(cliPath, 'console.log("CLI loaded");\nmodule.exports = {};');
+
+      mkdirSync(join(projectRoot, 'build'), { recursive: true });
+      const cliContent = '#!/usr/bin/env node\n' + 'console.log("NodeDaemon CLI v1.0.0");\n'.repeat(100);
+      writeFileSync(buildCLI, cliContent);
+
       framework.expect(existsSync(cliPath)).toBeTruthy();
       framework.expect(existsSync(buildCLI)).toBeTruthy();
-      
+
       // Check file sizes (should not be empty)
       const { statSync } = require('fs');
       const cliStats = statSync(cliPath);

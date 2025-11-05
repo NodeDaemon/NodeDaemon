@@ -424,8 +424,12 @@ export class HealthMonitor extends EventEmitter {
     if (growthCount >= 8) {
       const firstMemory = recent[0].memory.rss;
       const lastMemory = recent[recent.length - 1].memory.rss;
+
+      // Skip if no baseline memory to compare against
+      if (firstMemory === 0) return;
+
       const growthPercent = ((lastMemory - firstMemory) / firstMemory) * 100;
-      
+
       if (growthPercent > 20) { // More than 20% growth
         issues.push(`Possible memory leak detected: ${growthPercent.toFixed(1)}% growth`);
       }
