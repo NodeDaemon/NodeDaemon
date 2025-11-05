@@ -372,7 +372,9 @@ export class HealthMonitor extends EventEmitter {
               if (dataLineIndex !== -1) {
                 const values = cpuLines[dataLineIndex].split(',');
                 // Find the column for our process (this is approximate)
-                cpuPercent = Math.random() * 10; // Fallback to estimated value
+                // TODO: Implement proper CPU parsing from typeperf output
+                // For now, default to 0 since we cannot accurately determine CPU usage
+                cpuPercent = 0;
               }
             } catch {
               // Ignore CPU parsing errors
