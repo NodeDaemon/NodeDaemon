@@ -333,7 +333,7 @@ export class ProcessOrchestrator extends EventEmitter {
   private async restartInstance(processInfo: ProcessInfo, instance: ProcessInstance): Promise<void> {
     try {
       this.restartTimers.delete(instance.id);
-      
+
       instance.restarts++;
       instance.lastRestart = Date.now();
       instance.status = 'starting';
@@ -346,10 +346,11 @@ export class ProcessOrchestrator extends EventEmitter {
 
       const strategy = this.determineStrategy(processInfo.config);
 
+      // Spawn process directly without creating a new instance
       if (strategy === 'cluster') {
-        await this.startClusterInstance(processInfo, 0);
+        await this.spawnClusterWorkerForInstance(processInfo, instance);
       } else {
-        await this.startSingleProcess(processInfo, strategy);
+        await this.spawnSingleProcessForInstance(processInfo, instance, strategy);
       }
 
       this.emit('instanceRestarted', processInfo, instance);
@@ -359,10 +360,109 @@ export class ProcessOrchestrator extends EventEmitter {
         instanceId: instance.id,
         error: error.message
       });
-      
+
       instance.status = 'errored';
       this.updateProcessStatus(processInfo);
     }
+  }
+
+  private spawnClusterWorkerForInstance(processInfo: ProcessInfo, instance: ProcessInstance): Promise<void> {
+    return new Promise((resolve, reject) => {
+      cluster.setupPrimary({
+        exec: processInfo.script,
+        args: processInfo.config.args || [],
+        cwd: processInfo.config.cwd
+      });
+
+      const worker = cluster.fork({ ...process.env, ...processInfo.config.env });
+      this.childProcesses.set(instance.id, worker);
+
+      worker.on('online', () => {
+        instance.pid = worker.process.pid;
+        instance.status = 'running';
+        instance.uptime = Date.now();
+        this.logger.info(`Cluster instance restarted`, {
+          processId: processInfo.id,
+          instanceId: instance.id,
+          pid: worker.process.pid
+        });
+        resolve();
+      });
+
+      worker.on('exit', (code, signal) => {
+        this.handleInstanceExit(processInfo, instance, code, signal);
+      });
+
+      worker.on('error', (error) => {
+        this.logger.error(`Cluster instance error`, {
+          processId: processInfo.id,
+          instanceId: instance.id,
+          error: error.message
+        });
+        reject(error);
+      });
+
+      setTimeout(() => {
+        if (instance.status === 'starting') {
+          reject(new Error('Cluster instance failed to start within timeout'));
+        }
+      }, 30000);
+    });
+  }
+
+  private spawnSingleProcessForInstance(processInfo: ProcessInfo, instance: ProcessInstance, strategy: ProcessStrategy): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let childProcess: ChildProcess;
+
+      if (strategy === 'fork') {
+        childProcess = fork(processInfo.script, processInfo.config.args || [], {
+          cwd: processInfo.config.cwd,
+          env: { ...process.env, ...processInfo.config.env },
+          silent: false
+        });
+      } else {
+        const interpreter = processInfo.config.interpreter || 'node';
+        childProcess = spawn(interpreter, [processInfo.script, ...(processInfo.config.args || [])], {
+          cwd: processInfo.config.cwd,
+          env: { ...process.env, ...processInfo.config.env },
+          stdio: ['inherit', 'inherit', 'inherit']
+        });
+      }
+
+      this.childProcesses.set(instance.id, childProcess);
+
+      childProcess.on('spawn', () => {
+        instance.pid = childProcess.pid;
+        instance.status = 'running';
+        instance.uptime = Date.now();
+        this.logger.info(`Process instance restarted`, {
+          processId: processInfo.id,
+          instanceId: instance.id,
+          pid: childProcess.pid,
+          strategy
+        });
+        resolve();
+      });
+
+      childProcess.on('exit', (code, signal) => {
+        this.handleInstanceExit(processInfo, instance, code, signal);
+      });
+
+      childProcess.on('error', (error) => {
+        this.logger.error(`Process instance error`, {
+          processId: processInfo.id,
+          instanceId: instance.id,
+          error: error.message
+        });
+        reject(error);
+      });
+
+      setTimeout(() => {
+        if (instance.status === 'starting') {
+          reject(new Error('Process instance failed to start within timeout'));
+        }
+      }, 30000);
+    });
   }
 
   private updateProcessStatus(processInfo: ProcessInfo): void {
