@@ -174,22 +174,24 @@ export class LogManager extends EventEmitter {
 
   private rotateLogFiles(logPath: string): void {
     const basePath = logPath.replace('.log', '');
-    
+
+    // Rotate existing archived logs (from oldest to newest)
     for (let i = MAX_LOG_FILES - 1; i > 0; i--) {
-      const oldPath = i === 1 ? logPath : `${basePath}.${i}.log.gz`;
+      const oldPath = `${basePath}.${i}.log.gz`;
       const newPath = `${basePath}.${i + 1}.log.gz`;
-      
+
       if (existsSync(oldPath)) {
         if (i === MAX_LOG_FILES - 1) {
+          // Delete the oldest log file
           unlinkSync(oldPath);
-        } else if (i === 1) {
-          this.compressAndMove(oldPath, newPath);
         } else {
+          // Rename archived logs to next number
           renameSync(oldPath, newPath);
         }
       }
     }
-    
+
+    // Compress current log file to .1.log.gz
     if (existsSync(logPath)) {
       this.compressAndMove(logPath, `${basePath}.1.log.gz`);
     }

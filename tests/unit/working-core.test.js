@@ -37,10 +37,10 @@ framework.describe('NodeDaemon Core - Working Tests', () => {
     framework.it('should have package.json with correct name', () => {
       const packagePath = join(projectRoot, 'package.json');
       framework.expect(existsSync(packagePath)).toBeTruthy();
-      
+
       const packageData = JSON.parse(readFileSync(packagePath, 'utf8'));
       framework.expect(packageData.name).toBe('@nodedaemon/core');
-      framework.expect(packageData.version).toBe('1.0.1');
+      framework.expect(packageData.version).toBe('1.1.0');
     });
 
     framework.it('should have TypeScript configuration', () => {

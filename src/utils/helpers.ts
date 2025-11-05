@@ -33,29 +33,33 @@ export function isDirectory(path: string): boolean {
 }
 
 export function parseMemoryString(memory: string): number {
+  if (!memory || typeof memory !== 'string') {
+    throw new Error('Invalid memory format: must be a non-empty string');
+  }
+
   const units: Record<string, number> = {
     'B': 1,
     'KB': 1024,
     'MB': 1024 * 1024,
     'GB': 1024 * 1024 * 1024
   };
-  
+
   const match = memory.match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)$/i);
   if (!match || !match[1] || !match[2]) {
     throw new Error(`Invalid memory format: ${memory}`);
   }
-  
+
   const [, value, unit] = match;
   return Math.floor(parseFloat(value) * units[unit.toUpperCase()]);
 }
 
 export function formatMemory(bytes: number): string {
   if (bytes === 0) return '0 B';
-  
+
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
