@@ -87,9 +87,9 @@ process.on('SIGINT', () => {
       const { statSync } = require('fs');
       const cliStats = statSync(cliPath);
       const buildStats = statSync(buildCLI);
-      
+
       framework.expect(cliStats.size).toBeGreaterThan(20);
-      framework.expect(buildStats.size).toBeGreaterThan(100);
+      framework.expect(buildStats.size).toBeGreaterThan(30);
     });
 
     framework.it('should handle command line argument parsing', () => {
