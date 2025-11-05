@@ -585,14 +585,14 @@ export class ProcessOrchestrator extends EventEmitter {
 
   public async gracefulReload(processInfo: ProcessInfo): Promise<void> {
     this.logger.info(`Starting graceful reload for ${processInfo.name}`, { processId: processInfo.id });
-    
+
     const instanceCount = this.resolveInstanceCount(processInfo.config.instances);
     const oldInstances = [...processInfo.instances];
     const newInstances: ProcessInstance[] = [];
-    
+
     processInfo.status = 'reloading';
     processInfo.updatedAt = Date.now();
-    
+
     // Start new instances first
     for (let i = 0; i < instanceCount; i++) {
       const instanceId = generateId();
@@ -601,16 +601,17 @@ export class ProcessOrchestrator extends EventEmitter {
         status: 'starting',
         restarts: 0
       };
-      
+
       newInstances.push(instance);
       processInfo.instances.push(instance);
-      
+
       try {
-        await this.startClusterInstance(processInfo, i);
-        
+        // Spawn worker for the existing instance instead of creating a new one
+        await this.spawnClusterWorkerForInstance(processInfo, instance);
+
         // Wait a bit for the new instance to be ready
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
+
       } catch (error) {
         this.logger.error(`Failed to start new instance during graceful reload`, {
           processId: processInfo.id,
