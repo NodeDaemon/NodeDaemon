@@ -200,7 +200,7 @@ export class StateManager {
 
   private startAutoSave(): void {
     if (this.saveTimer) {
-      clearInterval(this.saveTimer);
+      clearTimeout(this.saveTimer);
     }
 
     this.saveTimer = setInterval(() => {
