@@ -54,7 +54,8 @@ export function parseMemoryString(memory: string): number {
 }
 
 export function formatMemory(bytes: number): string {
-  if (bytes === 0) return '0 B';
+  // Handle negative and zero values
+  if (bytes <= 0) return '0 B';
 
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
@@ -86,6 +87,11 @@ export function calculateExponentialBackoff(
   baseDelay: number,
   maxDelay: number
 ): number {
+  // Validate delays are non-negative
+  if (baseDelay < 0 || maxDelay < 0) {
+    throw new Error('Delays must be non-negative');
+  }
+
   const delay = baseDelay * Math.pow(2, restartCount);
   return Math.min(delay, maxDelay);
 }
@@ -131,25 +137,44 @@ export function validateProcessConfig(config: any): void {
   if (!config || typeof config !== 'object') {
     throw new Error('Process config must be an object');
   }
-  
+
   if (!config.script || typeof config.script !== 'string') {
     throw new Error('Process config must have a script property');
   }
-  
+
   if (!isFile(config.script)) {
     throw new Error(`Script file does not exist: ${config.script}`);
   }
-  
+
   if (config.instances !== undefined) {
-    if (config.instances !== 'max' && 
+    if (config.instances !== 'max' &&
         (!Number.isInteger(config.instances) || config.instances < 1)) {
       throw new Error('instances must be a positive integer or "max"');
     }
   }
-  
+
   if (config.maxRestarts !== undefined) {
     if (!Number.isInteger(config.maxRestarts) || config.maxRestarts < 0) {
       throw new Error('maxRestarts must be a non-negative integer');
+    }
+  }
+
+  // Validate timing parameters
+  if (config.restartDelay !== undefined) {
+    if (!Number.isFinite(config.restartDelay) || config.restartDelay < 0) {
+      throw new Error('restartDelay must be a non-negative number');
+    }
+  }
+
+  if (config.maxRestartDelay !== undefined) {
+    if (!Number.isFinite(config.maxRestartDelay) || config.maxRestartDelay < 0) {
+      throw new Error('maxRestartDelay must be a non-negative number');
+    }
+  }
+
+  if (config.minUptime !== undefined) {
+    if (!Number.isFinite(config.minUptime) || config.minUptime < 0) {
+      throw new Error('minUptime must be a non-negative number');
     }
   }
 }
