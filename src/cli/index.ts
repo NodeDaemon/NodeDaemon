@@ -390,14 +390,19 @@ class NodeDaemonCLI {
           if (options.host) {
             config.host = options.host;
           }
-          
-          if (options.username && options.password) {
+
+          // Fix BUG-011: Read password from environment variable instead of command-line
+          const password = process.env.NODEDAEMON_WEBUI_PASSWORD;
+
+          if (options.username && password) {
             config.auth = {
               username: options.username,
-              password: options.password
+              password: password
             };
-          } else if (options.username || options.password) {
-            throw new Error('Both username and password are required for authentication');
+          } else if (options.username && !password) {
+            throw new Error('Username provided but NODEDAEMON_WEBUI_PASSWORD environment variable is not set.\nSet it with: export NODEDAEMON_WEBUI_PASSWORD=your_password');
+          } else if (!options.username && password) {
+            throw new Error('Password provided via environment variable but username is missing.\nProvide username with: nodedaemon webui start -u your_username');
           }
           
           const startResult = await this.client.sendMessage('webui', { action: 'set', config });

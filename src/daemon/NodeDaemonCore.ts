@@ -1,5 +1,5 @@
 import { createServer, Server, Socket } from 'net';
-import { unlink } from 'fs';
+import { unlink, chmod } from 'fs';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 
@@ -21,6 +21,7 @@ import {
 } from '../utils/constants';
 
 const unlinkAsync = promisify(unlink);
+const chmodAsync = promisify(chmod); // Fix BUG-009: Use async chmod instead of blocking chmodSync
 
 export class NodeDaemonCore extends EventEmitter {
   private server: Server;
@@ -705,10 +706,9 @@ export class NodeDaemonCore extends EventEmitter {
         this.server.on('error', reject);
       });
       
-      // Set proper permissions on Unix socket
+      // Fix BUG-009: Set proper permissions on Unix socket (async)
       if (process.platform !== 'win32') {
-        const fs = require('fs');
-        fs.chmodSync(IPC_SOCKET_PATH, 0o600);
+        await chmodAsync(IPC_SOCKET_PATH, 0o600);
       }
       
       // Start health check timer

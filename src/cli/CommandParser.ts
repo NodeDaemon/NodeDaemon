@@ -331,13 +331,15 @@ export class CommandParser {
 
     switch (subcommand) {
       case 'start':
+        // Fix BUG-011: Remove password from command-line arguments
+        // Password should be provided via NODEDAEMON_WEBUI_PASSWORD environment variable
         const { values: startValues } = parseArgs({
           args: subArgs,
           options: {
             port: { type: 'string', short: 'p' },
             host: { type: 'string', short: 'h' },
-            username: { type: 'string', short: 'u' },
-            password: { type: 'string' }
+            username: { type: 'string', short: 'u' }
+            // password removed - use environment variable instead
           },
           allowPositionals: false
         });
