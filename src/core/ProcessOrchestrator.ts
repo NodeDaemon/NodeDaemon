@@ -14,6 +14,8 @@ export class ProcessOrchestrator extends EventEmitter {
   private restartTimers: Map<string, NodeJS.Timeout> = new Map();
   private logger: LogManager;
   private isShuttingDown: boolean = false;
+  // Fix BUG-013: Track current cluster configuration to prevent race conditions
+  private currentClusterConfig: { exec: string; args: string[]; cwd?: string } | null = null;
 
   constructor(logger: LogManager) {
     super();
@@ -38,6 +40,23 @@ export class ProcessOrchestrator extends EventEmitter {
     process.on('SIGTERM', () => this.gracefulShutdown());
     process.on('SIGINT', () => this.gracefulShutdown());
     process.on('SIGHUP', () => this.reloadAllProcesses());
+  }
+
+  // Fix BUG-013: Helper to setup cluster primary only when configuration changes
+  private setupClusterIfNeeded(exec: string, args: string[], cwd?: string): void {
+    const newConfig = { exec, args, cwd };
+
+    // Check if configuration has changed
+    const configChanged = !this.currentClusterConfig ||
+      this.currentClusterConfig.exec !== newConfig.exec ||
+      JSON.stringify(this.currentClusterConfig.args) !== JSON.stringify(newConfig.args) ||
+      this.currentClusterConfig.cwd !== newConfig.cwd;
+
+    if (configChanged) {
+      cluster.setupPrimary(newConfig);
+      this.currentClusterConfig = newConfig;
+      this.logger.debug('Cluster configuration updated', newConfig);
+    }
   }
 
   public async startProcess(config: ProcessConfig): Promise<string> {
@@ -142,11 +161,12 @@ export class ProcessOrchestrator extends EventEmitter {
 
       processInfo.instances.push(instance);
 
-      cluster.setupPrimary({
-        exec: processInfo.script,
-        args: processInfo.config.args || [],
-        cwd: processInfo.config.cwd
-      });
+      // Fix BUG-013: Use helper to prevent race conditions
+      this.setupClusterIfNeeded(
+        processInfo.script,
+        processInfo.config.args || [],
+        processInfo.config.cwd
+      );
 
       const worker = cluster.fork({ ...process.env, ...processInfo.config.env });
       this.childProcesses.set(instanceId, worker);
@@ -176,11 +196,17 @@ export class ProcessOrchestrator extends EventEmitter {
         reject(error);
       });
 
-      setTimeout(() => {
+      // Fix BUG-010: Store timeout reference to clear it on success
+      const startTimeout = setTimeout(() => {
         if (instance.status === 'starting') {
           reject(new Error(`Cluster instance ${instanceIndex} failed to start within timeout`));
         }
       }, 30000);
+
+      // Clear timeout on successful start
+      worker.once('online', () => {
+        clearTimeout(startTimeout);
+      });
     });
   }
 
@@ -214,15 +240,25 @@ export class ProcessOrchestrator extends EventEmitter {
     this.childProcesses.set(instanceId, childProcess);
 
     return new Promise((resolve, reject) => {
+      // Fix BUG-010: Store timeout reference to clear it on success
+      const startTimeout = setTimeout(() => {
+        if (instance.status === 'starting') {
+          reject(new Error('Process failed to start within timeout'));
+        }
+      }, 30000);
+
       childProcess.on('spawn', () => {
+        // Clear timeout on successful start
+        clearTimeout(startTimeout);
+
         instance.pid = childProcess.pid;
         instance.status = 'running';
         instance.uptime = Date.now();
-        this.logger.info(`Process started`, { 
-          processId: processInfo.id, 
-          instanceId, 
+        this.logger.info(`Process started`, {
+          processId: processInfo.id,
+          instanceId,
           pid: childProcess.pid,
-          strategy 
+          strategy
         });
         resolve();
       });
@@ -232,19 +268,16 @@ export class ProcessOrchestrator extends EventEmitter {
       });
 
       childProcess.on('error', (error) => {
-        this.logger.error(`Process error`, { 
-          processId: processInfo.id, 
-          instanceId, 
-          error: error.message 
+        // Clear timeout on error
+        clearTimeout(startTimeout);
+
+        this.logger.error(`Process error`, {
+          processId: processInfo.id,
+          instanceId,
+          error: error.message
         });
         reject(error);
       });
-
-      setTimeout(() => {
-        if (instance.status === 'starting') {
-          reject(new Error('Process failed to start within timeout'));
-        }
-      }, 30000);
     });
   }
 
@@ -368,11 +401,12 @@ export class ProcessOrchestrator extends EventEmitter {
 
   private spawnClusterWorkerForInstance(processInfo: ProcessInfo, instance: ProcessInstance): Promise<void> {
     return new Promise((resolve, reject) => {
-      cluster.setupPrimary({
-        exec: processInfo.script,
-        args: processInfo.config.args || [],
-        cwd: processInfo.config.cwd
-      });
+      // Fix BUG-013: Use helper to prevent race conditions
+      this.setupClusterIfNeeded(
+        processInfo.script,
+        processInfo.config.args || [],
+        processInfo.config.cwd
+      );
 
       const worker = cluster.fork({ ...process.env, ...processInfo.config.env });
       this.childProcesses.set(instance.id, worker);
@@ -393,7 +427,22 @@ export class ProcessOrchestrator extends EventEmitter {
         this.handleInstanceExit(processInfo, instance, code, signal);
       });
 
+      // Fix BUG-010: Store timeout reference to clear it on success
+      const startTimeout = setTimeout(() => {
+        if (instance.status === 'starting') {
+          reject(new Error('Cluster instance failed to start within timeout'));
+        }
+      }, 30000);
+
+      worker.once('online', () => {
+        // Clear timeout on successful start
+        clearTimeout(startTimeout);
+      });
+
       worker.on('error', (error) => {
+        // Clear timeout on error
+        clearTimeout(startTimeout);
+
         this.logger.error(`Cluster instance error`, {
           processId: processInfo.id,
           instanceId: instance.id,
@@ -401,12 +450,6 @@ export class ProcessOrchestrator extends EventEmitter {
         });
         reject(error);
       });
-
-      setTimeout(() => {
-        if (instance.status === 'starting') {
-          reject(new Error('Cluster instance failed to start within timeout'));
-        }
-      }, 30000);
     });
   }
 

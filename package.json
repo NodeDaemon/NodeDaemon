@@ -21,13 +21,13 @@
     "dev": "tsc --watch"
   },
   "keywords": [
-    "process", 
-    "manager", 
-    "daemon", 
-    "cluster", 
-    "pm2", 
-    "forever", 
-    "nodejs", 
+    "process",
+    "manager",
+    "daemon",
+    "cluster",
+    "pm2",
+    "forever",
+    "nodejs",
     "zero-dependencies",
     "production",
     "monitoring",
@@ -55,7 +55,7 @@
     "LICENSE"
   ],
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.25",
     "typescript": "^5.0.0"
   }
 }

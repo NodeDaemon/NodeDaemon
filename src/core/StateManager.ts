@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs';
 import { DaemonState, ProcessInfo } from '../types';
 import { LogManager } from './LogManager';
 import { ensureFileDir } from '../utils/helpers';
@@ -9,6 +9,7 @@ export class StateManager {
   private state: DaemonState;
   private saveTimer: NodeJS.Timeout | null = null;
   private saveInterval: number = 5000; // 5 seconds
+  private isSaving: boolean = false; // Fix BUG-005: Prevent concurrent saves
 
   constructor(logger: LogManager) {
     this.logger = logger;
@@ -101,25 +102,55 @@ export class StateManager {
   }
 
   public saveState(): void {
+    // Fix BUG-005: Prevent concurrent saves with locking
+    if (this.isSaving) {
+      this.logger.debug('Save already in progress, skipping');
+      return;
+    }
+
+    this.isSaving = true;
+
     try {
       ensureFileDir(STATE_FILE);
-      
+
       const stateToSave = {
         ...this.state,
         processes: Array.from(this.state.processes.entries()),
         savedAt: Date.now()
       };
-      
+
       const stateData = JSON.stringify(stateToSave, null, 2);
-      writeFileSync(STATE_FILE, stateData, 'utf8');
-      
-      this.logger.debug('State saved successfully', {
-        processCount: this.state.processes.size,
-        filePath: STATE_FILE
-      });
-      
+
+      // Fix BUG-005: Atomic write using temporary file and rename
+      const tempFile = `${STATE_FILE}.tmp.${process.pid}`;
+
+      try {
+        // Write to temporary file first
+        writeFileSync(tempFile, stateData, 'utf8');
+
+        // Atomic rename (this is atomic on most filesystems)
+        renameSync(tempFile, STATE_FILE);
+
+        this.logger.debug('State saved successfully', {
+          processCount: this.state.processes.size,
+          filePath: STATE_FILE
+        });
+      } catch (writeError) {
+        // Clean up temp file if it exists
+        try {
+          if (existsSync(tempFile)) {
+            unlinkSync(tempFile);
+          }
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
+        throw writeError;
+      }
+
     } catch (error) {
       this.logger.error(`Failed to save state: ${error.message}`, { error });
+    } finally {
+      this.isSaving = false;
     }
   }
 

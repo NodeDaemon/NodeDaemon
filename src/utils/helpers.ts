@@ -92,7 +92,14 @@ export function calculateExponentialBackoff(
     throw new Error('Delays must be non-negative');
   }
 
+  // Fix BUG-012: Prevent integer overflow in exponential calculation
   const delay = baseDelay * Math.pow(2, restartCount);
+
+  // Check for overflow (NaN or Infinity)
+  if (!Number.isFinite(delay) || delay > Number.MAX_SAFE_INTEGER) {
+    return maxDelay;
+  }
+
   return Math.min(delay, maxDelay);
 }
 

@@ -1,8 +1,8 @@
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { EventEmitter } from 'events';
-import { readFileSync, existsSync } from 'fs';
-import { join, extname } from 'path';
-import { createHash } from 'crypto';
+import { readFileSync, existsSync, realpathSync } from 'fs';
+import { join, extname, resolve } from 'path';
+import { randomUUID } from 'crypto';
 import { SimpleWebSocket, SimpleWebSocketServer } from './WebSocketServer';
 import { LogEntry, ProcessInfo, WebSocketMessage, WebSocketEvent, WebUIConfig } from '../types';
 import { DEFAULT_WEB_UI_CONFIG, NODEDAEMON_DIR } from '../utils/constants';
@@ -188,16 +188,28 @@ export class WebUIServer extends EventEmitter {
     const normalizedPath = urlPath.replace(/^\/+/, '');
     const filePath = join(this.staticPath, normalizedPath);
 
-    // Security: Ensure we're not serving files outside static directory
-    if (!filePath.startsWith(this.staticPath)) {
-      res.writeHead(403);
-      res.end('Forbidden');
-      return;
-    }
-
+    // Fix BUG-004: Proper path traversal protection using realpath
+    // Check if file exists first
     if (!existsSync(filePath)) {
       res.writeHead(404);
       res.end('Not found');
+      return;
+    }
+
+    try {
+      // Resolve to real absolute path (follows symlinks)
+      const realFilePath = realpathSync(filePath);
+      const realStaticPath = realpathSync(this.staticPath);
+
+      // Security: Ensure we're not serving files outside static directory
+      if (!realFilePath.startsWith(realStaticPath)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+    } catch (error) {
+      res.writeHead(403);
+      res.end('Forbidden');
       return;
     }
 
@@ -206,7 +218,11 @@ export class WebUIServer extends EventEmitter {
 
     try {
       const content = readFileSync(filePath);
-      res.writeHead(200, { 'Content-Type': contentType });
+      // Fix BUG-030: Add Content-Length header for HTTP/1.1 compliance
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': content.length
+      });
       res.end(content);
     } catch (error) {
       res.writeHead(500);
@@ -363,7 +379,8 @@ export class WebUIServer extends EventEmitter {
   }
 
   private generateClientId(): string {
-    return createHash('md5').update(Date.now().toString()).digest('hex').substring(0, 16);
+    // Fix BUG-025: Use cryptographically secure randomUUID instead of MD5 hash
+    return randomUUID();
   }
 
   isRunning(): boolean {

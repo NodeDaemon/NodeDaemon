@@ -61,8 +61,9 @@ export function getProcessCpuUsage(pid: number): Promise<number> {
     try {
       if (process.platform === 'win32') {
         // Windows: Use wmic command
-        const { exec } = require('child_process');
-        exec(`wmic process where ProcessId=${pid} get PercentProcessorTime`, (error: any, stdout: string) => {
+        // Fix BUG-017: Use execFile instead of exec to prevent command injection
+        const { execFile } = require('child_process');
+        execFile('wmic', ['process', 'where', `ProcessId=${pid}`, 'get', 'PercentProcessorTime'], (error: any, stdout: string) => {
           if (error) {
             resolve(0);
             return;
@@ -73,8 +74,9 @@ export function getProcessCpuUsage(pid: number): Promise<number> {
         });
       } else {
         // Unix/Linux: Use ps command
-        const { exec } = require('child_process');
-        exec(`ps -p ${pid} -o %cpu`, (error: any, stdout: string) => {
+        // Fix BUG-017: Use execFile instead of exec to prevent command injection
+        const { execFile } = require('child_process');
+        execFile('ps', ['-p', pid.toString(), '-o', '%cpu'], (error: any, stdout: string) => {
           if (error) {
             resolve(0);
             return;

@@ -293,10 +293,10 @@ export class HealthMonitor extends EventEmitter {
   }
 
   private getMacMetrics(pid: number, callback: (error?: Error, metrics?: ProcessMetrics) => void): void {
-    const { exec } = require('child_process');
-    
-    const cmd = `ps -o pid,rss,vsz,%cpu,etime -p ${pid}`;
-    exec(cmd, (error: any, stdout: string) => {
+    const { execFile } = require('child_process');
+
+    // Fix BUG-003: Use execFile instead of exec to prevent command injection
+    execFile('ps', ['-o', 'pid,rss,vsz,%cpu,etime', '-p', pid.toString()], (error: any, stdout: string) => {
       if (error) {
         return callback(error);
       }
@@ -338,11 +338,11 @@ export class HealthMonitor extends EventEmitter {
   }
 
   private getWindowsMetrics(pid: number, callback: (error?: Error, metrics?: ProcessMetrics) => void): void {
-    const { exec } = require('child_process');
-    
+    const { execFile } = require('child_process');
+
+    // Fix BUG-003: Use execFile instead of exec to prevent command injection
     // First get memory info
-    const memCmd = `wmic process where processid=${pid} get WorkingSetSize,VirtualSize,PageFileUsage /format:csv`;
-    exec(memCmd, (error: any, stdout: string) => {
+    execFile('wmic', ['process', 'where', `processid=${pid}`, 'get', 'WorkingSetSize,VirtualSize,PageFileUsage', '/format:csv'], (error: any, stdout: string) => {
       if (error) {
         return callback(error);
       }
@@ -359,10 +359,10 @@ export class HealthMonitor extends EventEmitter {
         const data = dataLine.split(',');
         const workingSet = parseInt(data[3], 10) || 0; // Working set (RSS equivalent)
         const virtualSize = parseInt(data[2], 10) || 0;
-        
+
         // Now get CPU usage using typeperf for more accurate results
-        const cpuCmd = `typeperf "\\Process(*)\\% Processor Time" -sc 1`;
-        exec(cpuCmd, { maxBuffer: 1024 * 1024 }, (cpuError: any, cpuStdout: string) => {
+        // Fix BUG-003: Use execFile instead of exec to prevent command injection
+        execFile('typeperf', ['\\Process(*)\\% Processor Time', '-sc', '1'], { maxBuffer: 1024 * 1024 }, (cpuError: any, cpuStdout: string) => {
           let cpuPercent = 0;
           
           if (!cpuError) {
