@@ -35,6 +35,8 @@ export class NodeDaemonCore extends EventEmitter {
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private watchedProcesses: Map<string, string[]> = new Map(); // processId -> watch paths
   private webUIConfig: WebUIConfig | null = null;
+  // Fix BUG-007: Buffer for handling fragmented IPC messages
+  private messageBuffers: Map<Socket, string> = new Map();
 
   constructor() {
     super();
@@ -374,25 +376,53 @@ export class NodeDaemonCore extends EventEmitter {
   private handleClientConnection(socket: Socket): void {
     this.clients.add(socket);
     this.logger.debug('Client connected');
-    
+
+    // Fix BUG-007: Initialize message buffer for this socket
+    this.messageBuffers.set(socket, '');
+
     socket.on('data', (data) => this.handleClientMessage(socket, data));
     socket.on('error', (error) => {
       this.logger.error('Client socket error', { error: error.message });
       this.clients.delete(socket);
+      // Fix BUG-007: Clean up message buffer
+      this.messageBuffers.delete(socket);
     });
-    
+
     socket.on('close', () => {
       this.logger.debug('Client disconnected');
       this.clients.delete(socket);
+      // Fix BUG-007: Clean up message buffer
+      this.messageBuffers.delete(socket);
     });
   }
 
   private handleClientMessage(socket: Socket, data: Buffer): void {
+    // Fix BUG-007: Handle fragmented IPC messages properly
     try {
-      const message: IPCMessage = JSON.parse(data.toString());
-      this.processIPCMessage(socket, message);
+      // Get existing buffer or create new one
+      const existingBuffer = this.messageBuffers.get(socket) || '';
+      const combinedData = existingBuffer + data.toString();
+
+      // Try to parse complete messages (newline delimited)
+      const messages = combinedData.split('\n');
+
+      // Last element might be incomplete, save it for next data event
+      const incomplete = messages.pop() || '';
+      this.messageBuffers.set(socket, incomplete);
+
+      // Process all complete messages
+      for (const messageStr of messages) {
+        if (messageStr.trim()) {
+          try {
+            const message: IPCMessage = JSON.parse(messageStr);
+            this.processIPCMessage(socket, message);
+          } catch (parseError) {
+            this.sendError(socket, '', 'Invalid JSON message');
+          }
+        }
+      }
     } catch (error) {
-      this.sendError(socket, '', 'Invalid JSON message');
+      this.sendError(socket, '', 'Message processing error');
     }
   }
 

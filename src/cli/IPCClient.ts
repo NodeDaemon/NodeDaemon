@@ -136,7 +136,16 @@ export class IPCClient {
       });
 
       const messageData = JSON.stringify(message) + '\n';
-      this.socket!.write(messageData, (error) => {
+
+      // Fix BUG-008: Re-check socket before write instead of using non-null assertion
+      if (!this.socket) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(id);
+        reject(new Error('Socket disconnected before sending message'));
+        return;
+      }
+
+      this.socket.write(messageData, (error) => {
         if (error) {
           clearTimeout(timeout);
           this.pendingRequests.delete(id);
@@ -180,11 +189,13 @@ export class IPCClient {
 
   public disconnect(): void {
     if (this.socket) {
+      // Fix BUG-015: Remove all event listeners before disconnecting
+      this.socket.removeAllListeners();
       this.socket.end();
       this.socket = null;
     }
     this.connected = false;
-    
+
     // Clear pending requests
     this.pendingRequests.forEach((request) => {
       clearTimeout(request.timeout);

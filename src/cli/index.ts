@@ -10,6 +10,8 @@ import { Formatter } from './Formatter';
 class NodeDaemonCLI {
   private client: IPCClient = new IPCClient();
   private parser: CommandParser = new CommandParser();
+  private watchInterval: NodeJS.Timeout | null = null;
+  private followInterval: NodeJS.Timeout | null = null;
 
   public async run(argv: string[]): Promise<void> {
     try {
@@ -205,7 +207,13 @@ class NodeDaemonCLI {
       
       if (options.watch) {
         console.log(Formatter.formatInfo('Watching for changes... (Press Ctrl+C to exit)'));
-        setInterval(async () => {
+
+        // Clear any existing watch interval
+        if (this.watchInterval) {
+          clearInterval(this.watchInterval);
+        }
+
+        this.watchInterval = setInterval(async () => {
           try {
             const updated = await this.client.list();
             console.clear();
@@ -214,8 +222,18 @@ class NodeDaemonCLI {
             console.error(Formatter.formatError('Failed to update list'));
           }
         }, 2000);
+
+        // Clear interval on exit
+        process.once('SIGINT', () => {
+          if (this.watchInterval) {
+            clearInterval(this.watchInterval);
+            this.watchInterval = null;
+          }
+          this.client.disconnect();
+          process.exit(0);
+        });
       }
-      
+
     } finally {
       if (!options.watch) {
         this.client.disconnect();
@@ -285,14 +303,22 @@ class NodeDaemonCLI {
       
       if (options.follow) {
         console.log(Formatter.formatInfo('Following logs... (Press Ctrl+C to exit)'));
-        
-        let lastTimestamp = Math.max(...result.logs.map((log: any) => log.timestamp), 0);
-        
-        setInterval(async () => {
+
+        // Fix BUG-014: Handle empty array case for Math.max
+        let lastTimestamp = result.logs.length > 0
+          ? Math.max(...result.logs.map((log: any) => log.timestamp))
+          : 0;
+
+        // Clear any existing follow interval
+        if (this.followInterval) {
+          clearInterval(this.followInterval);
+        }
+
+        this.followInterval = setInterval(async () => {
           try {
             const updated = await this.client.logs(logsOptions);
             const newLogs = updated.logs.filter((log: any) => log.timestamp > lastTimestamp);
-            
+
             if (newLogs.length > 0) {
               console.log(Formatter.formatLogs(newLogs));
               lastTimestamp = Math.max(...newLogs.map((log: any) => log.timestamp));
@@ -301,8 +327,18 @@ class NodeDaemonCLI {
             console.error(Formatter.formatError('Failed to fetch logs'));
           }
         }, 1000);
+
+        // Clear interval on exit
+        process.once('SIGINT', () => {
+          if (this.followInterval) {
+            clearInterval(this.followInterval);
+            this.followInterval = null;
+          }
+          this.client.disconnect();
+          process.exit(0);
+        });
       }
-      
+
     } finally {
       if (!options.follow) {
         this.client.disconnect();
