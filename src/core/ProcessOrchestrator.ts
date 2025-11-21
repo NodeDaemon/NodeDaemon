@@ -187,21 +187,23 @@ export class ProcessOrchestrator extends EventEmitter {
         this.handleInstanceExit(processInfo, instance, code, signal);
       });
 
-      worker.on('error', (error) => {
-        this.logger.error(`Cluster instance error`, { 
-          processId: processInfo.id, 
-          instanceId, 
-          error: error.message 
-        });
-        reject(error);
-      });
-
-      // Fix BUG-010: Store timeout reference to clear it on success
+      // Fix BUG-010 & BUG-023: Store timeout reference to clear it on success or error
       const startTimeout = setTimeout(() => {
         if (instance.status === 'starting') {
           reject(new Error(`Cluster instance ${instanceIndex} failed to start within timeout`));
         }
       }, 30000);
+
+      worker.on('error', (error) => {
+        // Fix BUG-023: Clear timeout on error to prevent timer leak
+        clearTimeout(startTimeout);
+        this.logger.error(`Cluster instance error`, {
+          processId: processInfo.id,
+          instanceId,
+          error: error.message
+        });
+        reject(error);
+      });
 
       // Clear timeout on successful start
       worker.once('online', () => {
