@@ -358,9 +358,10 @@ class NodeDaemonCLI {
       
       await this.client.shutdown();
       console.log(Formatter.formatSuccess('Daemon shutdown initiated'));
-      
+
     } catch (error) {
-      if (error.message.includes('not running')) {
+      // Fix BUG-022: Check if error is Error object before accessing .message
+      if (error instanceof Error && error.message.includes('not running')) {
         console.log(Formatter.formatInfo('Daemon is not running'));
       } else {
         throw error;
@@ -456,9 +457,10 @@ class NodeDaemonCLI {
         default:
           throw new Error(`Unknown webui action: ${options.action}`);
       }
-      
+
     } catch (error) {
-      if (error.message.includes('not running')) {
+      // Fix BUG-022: Check if error is Error object before accessing .message
+      if (error instanceof Error && error.message.includes('not running')) {
         console.log(Formatter.formatError('Daemon is not running'));
         console.log(Formatter.formatInfo('Start the daemon first: nodedaemon daemon'));
       } else {

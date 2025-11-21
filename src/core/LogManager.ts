@@ -203,6 +203,19 @@ export class LogManager extends EventEmitter {
       const source = require('fs').createReadStream(sourcePath);
       const target = createWriteStream(targetPath);
 
+      // Fix BUG-024: Add error handlers for all streams in pipeline
+      const handleError = (error: Error) => {
+        console.error(`Failed to compress log file ${sourcePath}:`, error);
+        // Clean up streams on error
+        source.destroy();
+        gzip.destroy();
+        target.destroy();
+      };
+
+      source.on('error', handleError);
+      gzip.on('error', handleError);
+      target.on('error', handleError);
+
       source.pipe(gzip).pipe(target);
 
       target.on('finish', () => {
@@ -211,10 +224,6 @@ export class LogManager extends EventEmitter {
         } catch (error) {
           console.error(`Failed to remove source log file ${sourcePath}:`, error);
         }
-      });
-
-      target.on('error', (error) => {
-        console.error(`Failed to compress log file ${sourcePath}:`, error);
       });
     } catch (error) {
       console.error(`Failed to compress and move log file:`, error);
