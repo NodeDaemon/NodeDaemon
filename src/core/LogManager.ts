@@ -1,4 +1,5 @@
 import { createWriteStream, existsSync, readdirSync, statSync, unlinkSync, renameSync } from 'fs';
+import { stat, readdir } from 'fs/promises';
 import { join } from 'path';
 import { createGzip } from 'zlib';
 import { WriteStream } from 'fs';
@@ -140,18 +141,33 @@ export class LogManager extends EventEmitter {
     return `${timestamp} ${level} ${processInfo}${entry.message}${dataInfo}`;
   }
 
+  /**
+   * Check if log rotation is needed (async)
+   * Fire-and-forget - doesn't block log writing
+   */
   private checkLogRotation(streamName: string): void {
     const logPath = join(LOG_DIR, `${streamName}.log`);
-    
-    if (!existsSync(logPath)) return;
 
+    // Async rotation check - fire and forget to avoid blocking log writes
+    this.checkLogRotationAsync(streamName, logPath).catch(error => {
+      console.error(`Failed to check log size for ${streamName}:`, error);
+    });
+  }
+
+  /**
+   * Async log rotation check - prevents blocking during stat operation
+   */
+  private async checkLogRotationAsync(streamName: string, logPath: string): Promise<void> {
     try {
-      const stats = statSync(logPath);
+      const stats = await stat(logPath);
       if (stats.size > MAX_LOG_SIZE) {
         this.rotateLog(streamName, logPath);
       }
     } catch (error) {
-      console.error(`Failed to check log size for ${streamName}:`, error);
+      // File doesn't exist or other error - ignore
+      if ((error as any).code !== 'ENOENT') {
+        throw error;
+      }
     }
   }
 

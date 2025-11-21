@@ -1,6 +1,7 @@
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { EventEmitter } from 'events';
-import { readFileSync, existsSync, realpathSync } from 'fs';
+import { existsSync } from 'fs';
+import { readFile, realpath, access } from 'fs/promises';
 import { join, extname, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { SimpleWebSocket, SimpleWebSocketServer } from './WebSocketServer';
@@ -28,6 +29,9 @@ export class WebUIServer extends EventEmitter {
   // Security: Rate Limiting
   private httpRateLimiter: RateLimiter;
   private wsRateLimiter: RateLimiter;
+
+  // Performance: Cache realStaticPath (doesn't change during runtime)
+  private realStaticPath: string | null = null;
 
   constructor(config: Partial<WebUIConfig> = {}) {
     super();
@@ -131,7 +135,7 @@ export class WebUIServer extends EventEmitter {
     });
   }
 
-  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url || '/';
 
     // Security: Add security headers to all HTTP responses
@@ -168,13 +172,13 @@ export class WebUIServer extends EventEmitter {
       return;
     }
 
-    // Route handling
+    // Route handling - use async static file serving
     if (url === '/') {
-      this.serveStaticFile('/index.html', res);
+      await this.serveStaticFile('/index.html', res);
     } else if (url.startsWith('/api/')) {
       this.handleApiRequest(url, req, res);
     } else {
-      this.serveStaticFile(url, res);
+      await this.serveStaticFile(url, res);
     }
   }
 
@@ -274,31 +278,40 @@ export class WebUIServer extends EventEmitter {
   }
 
 
-  private serveStaticFile(urlPath: string, res: ServerResponse): void {
+  /**
+   * Serve static files asynchronously
+   * Uses async I/O to prevent blocking HTTP requests
+   */
+  private async serveStaticFile(urlPath: string, res: ServerResponse): Promise<void> {
     // Sanitize path
     const normalizedPath = urlPath.replace(/^\/+/, '');
     const filePath = join(this.staticPath, normalizedPath);
 
     // Fix SECURITY-001: Path traversal protection - validate BEFORE checking existence
     let realFilePath: string;
-    let realStaticPath: string;
+    let cachedRealStaticPath: string;
 
     try {
-      // Get real static path first
-      realStaticPath = realpathSync(this.staticPath);
+      // Performance: Cache realStaticPath (doesn't change during runtime)
+      if (!this.realStaticPath) {
+        this.realStaticPath = await realpath(this.staticPath);
+      }
+      cachedRealStaticPath = this.realStaticPath;
 
-      // Check if requested file exists
-      if (!existsSync(filePath)) {
+      // Check if requested file exists (async)
+      try {
+        await access(filePath);
+      } catch {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
 
-      // Resolve to real absolute path (follows symlinks)
-      realFilePath = realpathSync(filePath);
+      // Resolve to real absolute path (follows symlinks) - async
+      realFilePath = await realpath(filePath);
 
       // Security: Ensure we're not serving files outside static directory
-      if (!realFilePath.startsWith(realStaticPath + '/') && realFilePath !== realStaticPath) {
+      if (!realFilePath.startsWith(cachedRealStaticPath + '/') && realFilePath !== cachedRealStaticPath) {
         res.writeHead(403);
         res.end('Forbidden');
         return;
@@ -314,7 +327,8 @@ export class WebUIServer extends EventEmitter {
     const contentType = this.getContentType(ext);
 
     try {
-      const content = readFileSync(realFilePath);
+      // Performance: Use async readFile instead of blocking readFileSync
+      const content = await readFile(realFilePath);
       // Fix BUG-030: Add Content-Length header for HTTP/1.1 compliance
       res.writeHead(200, {
         'Content-Type': contentType,
