@@ -5,7 +5,7 @@ import { join, extname, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { SimpleWebSocket, SimpleWebSocketServer } from './WebSocketServer';
 import { LogEntry, ProcessInfo, WebSocketMessage, WebSocketEvent, WebUIConfig } from '../types';
-import { DEFAULT_WEB_UI_CONFIG, NODEDAEMON_DIR } from '../utils/constants';
+import { DEFAULT_WEB_UI_CONFIG, NODEDAEMON_DIR, MAX_JSON_PAYLOAD_SIZE } from '../utils/constants';
 
 export class WebUIServer extends EventEmitter {
   private httpServer: HttpServer | null = null;
@@ -45,8 +45,16 @@ export class WebUIServer extends EventEmitter {
         return;
       }
 
+      // Fix SECURITY-003: Warn about insecure authentication
+      if (this.config.auth && this.config.host !== '127.0.0.1' && this.config.host !== 'localhost') {
+        console.warn('⚠️  WARNING: Web UI authentication is enabled without HTTPS!');
+        console.warn('⚠️  Credentials will be transmitted in cleartext over the network.');
+        console.warn('⚠️  It is STRONGLY RECOMMENDED to use a reverse proxy with HTTPS (nginx, Apache, Caddy).');
+        console.warn('⚠️  Or bind to localhost only (127.0.0.1) and use SSH tunneling for remote access.');
+      }
+
       this.httpServer = createServer(this.handleHttpRequest.bind(this));
-      
+
       this.wsServer = new SimpleWebSocketServer();
 
       // Handle WebSocket upgrade requests
@@ -147,7 +155,22 @@ export class WebUIServer extends EventEmitter {
       }
     } else if (req.method === 'POST') {
       let body = '';
-      req.on('data', chunk => body += chunk);
+      let bodySize = 0;
+
+      req.on('data', chunk => {
+        bodySize += chunk.length;
+
+        // Fix SECURITY-005: Enforce maximum payload size
+        if (bodySize > MAX_JSON_PAYLOAD_SIZE) {
+          req.destroy();
+          res.writeHead(413);
+          res.end(JSON.stringify({ error: `Payload too large: exceeds ${MAX_JSON_PAYLOAD_SIZE} bytes` }));
+          return;
+        }
+
+        body += chunk;
+      });
+
       req.on('end', () => {
         try {
           const data = JSON.parse(body);
@@ -188,21 +211,26 @@ export class WebUIServer extends EventEmitter {
     const normalizedPath = urlPath.replace(/^\/+/, '');
     const filePath = join(this.staticPath, normalizedPath);
 
-    // Fix BUG-004: Proper path traversal protection using realpath
-    // Check if file exists first
-    if (!existsSync(filePath)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
+    // Fix SECURITY-001: Path traversal protection - validate BEFORE checking existence
+    let realFilePath: string;
+    let realStaticPath: string;
 
     try {
+      // Get real static path first
+      realStaticPath = realpathSync(this.staticPath);
+
+      // Check if requested file exists
+      if (!existsSync(filePath)) {
+        res.writeHead(404);
+        res.end('Not found');
+        return;
+      }
+
       // Resolve to real absolute path (follows symlinks)
-      const realFilePath = realpathSync(filePath);
-      const realStaticPath = realpathSync(this.staticPath);
+      realFilePath = realpathSync(filePath);
 
       // Security: Ensure we're not serving files outside static directory
-      if (!realFilePath.startsWith(realStaticPath)) {
+      if (!realFilePath.startsWith(realStaticPath + '/') && realFilePath !== realStaticPath) {
         res.writeHead(403);
         res.end('Forbidden');
         return;
@@ -213,11 +241,12 @@ export class WebUIServer extends EventEmitter {
       return;
     }
 
-    const ext = extname(filePath).toLowerCase();
+    // Fix SECURITY-001: Use validated realFilePath for all operations
+    const ext = extname(realFilePath).toLowerCase();
     const contentType = this.getContentType(ext);
 
     try {
-      const content = readFileSync(filePath);
+      const content = readFileSync(realFilePath);
       // Fix BUG-030: Add Content-Length header for HTTP/1.1 compliance
       res.writeHead(200, {
         'Content-Type': contentType,
@@ -253,7 +282,14 @@ export class WebUIServer extends EventEmitter {
 
     ws.on('message', (data) => {
       try {
-        const message: WebSocketMessage = JSON.parse(data.toString());
+        // Fix SECURITY-005: Check message size before parsing
+        const dataStr = data.toString();
+        if (dataStr.length > MAX_JSON_PAYLOAD_SIZE) {
+          ws.send(JSON.stringify({ error: `Message too large: exceeds ${MAX_JSON_PAYLOAD_SIZE} bytes` }));
+          return;
+        }
+
+        const message: WebSocketMessage = JSON.parse(dataStr);
         this.handleWebSocketMessage(clientId, message);
       } catch (error) {
         ws.send(JSON.stringify({ error: 'Invalid message format' }));

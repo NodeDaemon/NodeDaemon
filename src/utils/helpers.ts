@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { existsSync, mkdirSync, statSync } from 'fs';
 import { dirname } from 'path';
+import { MAX_PROCESS_ID_LENGTH, MAX_PROCESS_NAME_LENGTH } from './constants';
 
 export function generateId(): string {
   return randomUUID();
@@ -140,6 +141,73 @@ export function sanitizeProcessName(name: string): string {
   return name.replace(/[^a-zA-Z0-9-_]/g, '_');
 }
 
+export function validateProcessId(processId: any): void {
+  // Fix SECURITY-004: Validate process ID input
+  if (!processId || typeof processId !== 'string') {
+    throw new Error('Process ID must be a non-empty string');
+  }
+
+  if (processId.length > MAX_PROCESS_ID_LENGTH) {
+    throw new Error(`Process ID exceeds maximum length of ${MAX_PROCESS_ID_LENGTH} characters`);
+  }
+
+  // Only allow alphanumeric characters, hyphens, and underscores
+  if (!/^[a-zA-Z0-9_-]+$/.test(processId)) {
+    throw new Error('Process ID must contain only alphanumeric characters, hyphens, and underscores');
+  }
+
+  // Prevent prototype pollution attacks
+  if (processId === '__proto__' || processId === 'constructor' || processId === 'prototype') {
+    throw new Error('Invalid process ID: reserved keyword');
+  }
+}
+
+export function validateProcessName(processName: any): void {
+  // Fix SECURITY-004: Validate process name input
+  if (!processName || typeof processName !== 'string') {
+    throw new Error('Process name must be a non-empty string');
+  }
+
+  if (processName.length > MAX_PROCESS_NAME_LENGTH) {
+    throw new Error(`Process name exceeds maximum length of ${MAX_PROCESS_NAME_LENGTH} characters`);
+  }
+
+  // More permissive than ID - allow spaces and common punctuation
+  if (!/^[a-zA-Z0-9_\- .]+$/.test(processName)) {
+    throw new Error('Process name contains invalid characters');
+  }
+}
+
+export function getSafeEnvironmentVariables(): Record<string, string> {
+  // Fix SECURITY-006: Only expose safe environment variables to child processes
+  const safeEnvVars = [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'NODE_ENV',
+    'NODE_OPTIONS'
+  ];
+
+  const safeEnv: Record<string, string> = {};
+
+  for (const key of safeEnvVars) {
+    if (process.env[key]) {
+      safeEnv[key] = process.env[key]!;
+    }
+  }
+
+  return safeEnv;
+}
+
 export function validateProcessConfig(config: any): void {
   if (!config || typeof config !== 'object') {
     throw new Error('Process config must be an object');
@@ -151,6 +219,11 @@ export function validateProcessConfig(config: any): void {
 
   if (!isFile(config.script)) {
     throw new Error(`Script file does not exist: ${config.script}`);
+  }
+
+  // Validate process name if provided
+  if (config.name !== undefined) {
+    validateProcessName(config.name);
   }
 
   if (config.instances !== undefined) {
