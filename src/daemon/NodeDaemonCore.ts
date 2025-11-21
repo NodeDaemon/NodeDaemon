@@ -11,13 +11,14 @@ import { StateManager } from '../core/StateManager';
 import { HealthMonitor } from '../core/HealthMonitor';
 import { WebUIServer } from '../core/WebUIServer';
 
-import { generateId, ensureDir, parseMemoryString, formatMemory } from '../utils/helpers';
-import { 
-  IPC_SOCKET_PATH, 
-  NODEDAEMON_DIR, 
+import { generateId, ensureDir, parseMemoryString, formatMemory, validateProcessId, validateProcessName } from '../utils/helpers';
+import {
+  IPC_SOCKET_PATH,
+  NODEDAEMON_DIR,
   HEALTH_CHECK_INTERVAL,
   GRACEFUL_SHUTDOWN_TIMEOUT,
-  DEFAULT_CONFIG
+  DEFAULT_CONFIG,
+  MAX_JSON_PAYLOAD_SIZE
 } from '../utils/constants';
 
 const unlinkAsync = promisify(unlink);
@@ -406,6 +407,17 @@ export class NodeDaemonCore extends EventEmitter {
       const existingBuffer = this.messageBuffers.get(socket) || '';
       const combinedData = existingBuffer + data.toString();
 
+      // Fix SECURITY-005: Enforce maximum message buffer size
+      if (combinedData.length > MAX_JSON_PAYLOAD_SIZE) {
+        this.logger.error('IPC message buffer too large, rejecting', {
+          size: combinedData.length,
+          max: MAX_JSON_PAYLOAD_SIZE
+        });
+        this.sendError(socket, '', `Message too large: exceeds ${MAX_JSON_PAYLOAD_SIZE} bytes`);
+        this.messageBuffers.delete(socket);
+        return;
+      }
+
       // Try to parse complete messages (newline delimited)
       const messages = combinedData.split('\n');
 
@@ -416,6 +428,12 @@ export class NodeDaemonCore extends EventEmitter {
       // Process all complete messages
       for (const messageStr of messages) {
         if (messageStr.trim()) {
+          // Fix SECURITY-005: Check individual message size before parsing
+          if (messageStr.length > MAX_JSON_PAYLOAD_SIZE) {
+            this.sendError(socket, '', `Message too large: exceeds ${MAX_JSON_PAYLOAD_SIZE} bytes`);
+            continue;
+          }
+
           try {
             const message: IPCMessage = JSON.parse(messageStr);
             this.processIPCMessage(socket, message);
@@ -527,7 +545,15 @@ export class NodeDaemonCore extends EventEmitter {
 
   private async handleStop(data: { processId?: string; name?: string; force?: boolean }): Promise<any> {
     const { processId, name, force = false } = data;
-    
+
+    // Fix SECURITY-004: Validate input before processing
+    if (processId) {
+      validateProcessId(processId);
+    }
+    if (name) {
+      validateProcessName(name);
+    }
+
     let targetProcess;
     if (processId) {
       targetProcess = this.processOrchestrator.getProcess(processId);
@@ -536,18 +562,26 @@ export class NodeDaemonCore extends EventEmitter {
     } else {
       throw new Error('Either processId or name must be provided');
     }
-    
+
     if (!targetProcess) {
       throw new Error('Process not found');
     }
-    
+
     await this.processOrchestrator.stopProcess(targetProcess.id, force);
     return { success: true };
   }
 
   private async handleRestart(data: { processId?: string; name?: string; graceful?: boolean }): Promise<any> {
     const { processId, name, graceful } = data;
-    
+
+    // Fix SECURITY-004: Validate input before processing
+    if (processId) {
+      validateProcessId(processId);
+    }
+    if (name) {
+      validateProcessName(name);
+    }
+
     let targetProcess;
     if (processId) {
       targetProcess = this.processOrchestrator.getProcess(processId);
@@ -556,11 +590,11 @@ export class NodeDaemonCore extends EventEmitter {
     } else {
       throw new Error('Either processId or name must be provided');
     }
-    
+
     if (!targetProcess) {
       throw new Error('Process not found');
     }
-    
+
     await this.processOrchestrator.restartProcess(targetProcess.id, graceful || false);
     return { success: true };
   }
@@ -598,25 +632,41 @@ export class NodeDaemonCore extends EventEmitter {
         health: this.processOrchestrator.getHealthCheck()
       };
     }
-    
+
+    // Fix SECURITY-004: Validate input before processing
     const { processId, name } = data;
+    if (processId) {
+      validateProcessId(processId);
+    }
+    if (name) {
+      validateProcessName(name);
+    }
+
     let targetProcess;
-    
+
     if (processId) {
       targetProcess = this.processOrchestrator.getProcess(processId);
     } else if (name) {
       targetProcess = this.processOrchestrator.getProcessByName(name);
     }
-    
+
     if (!targetProcess) {
       throw new Error('Process not found');
     }
-    
+
     return targetProcess;
   }
 
   private handleLogs(data: { processId?: string; name?: string; lines?: number }): any {
     const { processId, name, lines = 100 } = data;
+
+    // Fix SECURITY-004: Validate input before processing
+    if (processId) {
+      validateProcessId(processId);
+    }
+    if (name) {
+      validateProcessName(name);
+    }
     
     let targetProcessId = processId;
     if (!targetProcessId && name) {

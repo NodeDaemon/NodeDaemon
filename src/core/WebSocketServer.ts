@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { createHash } from 'crypto';
 import { IncomingMessage } from 'http';
 import { Duplex } from 'stream';
+import { MAX_WEBSOCKET_FRAME_SIZE } from '../utils/constants';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -61,10 +62,31 @@ export class SimpleWebSocket extends EventEmitter {
         offset += 2;
       } else if (payloadLength === 127) {
         if (buffer.length - offset < 8) break;
-        // For simplicity, we'll limit to 32-bit lengths
-        offset += 4; // Skip high 32 bits
-        payloadLength = buffer.readUInt32BE(offset);
+        // Fix SECURITY-002: Validate 64-bit payload length
+        const high32 = buffer.readUInt32BE(offset);
         offset += 4;
+        const low32 = buffer.readUInt32BE(offset);
+        offset += 4;
+
+        // Reject if high 32 bits are non-zero (payload > 4GB)
+        if (high32 !== 0) {
+          this.emit('error', new Error('WebSocket frame too large: payload exceeds 4GB'));
+          return frames;
+        }
+
+        payloadLength = low32;
+      }
+
+      // Fix SECURITY-002: Enforce maximum frame size
+      if (payloadLength > MAX_WEBSOCKET_FRAME_SIZE) {
+        this.emit('error', new Error(`WebSocket frame too large: ${payloadLength} bytes exceeds maximum ${MAX_WEBSOCKET_FRAME_SIZE} bytes`));
+        return frames;
+      }
+
+      // Fix SECURITY-002: Validate payload length is within safe integer range
+      if (!Number.isSafeInteger(payloadLength) || payloadLength < 0) {
+        this.emit('error', new Error('Invalid WebSocket frame: payload length out of safe range'));
+        return frames;
       }
 
       let maskKey: Buffer | null = null;
@@ -72,6 +94,12 @@ export class SimpleWebSocket extends EventEmitter {
         if (buffer.length - offset < 4) break;
         maskKey = buffer.slice(offset, offset + 4);
         offset += 4;
+      }
+
+      // Fix SECURITY-002: Prevent integer overflow in offset calculation
+      if (offset < 0 || offset + payloadLength < 0) {
+        this.emit('error', new Error('Invalid WebSocket frame: integer overflow detected'));
+        return frames;
       }
 
       if (buffer.length - offset < payloadLength) break;
@@ -83,6 +111,13 @@ export class SimpleWebSocket extends EventEmitter {
         for (let i = 0; i < payload.length; i++) {
           payload[i] ^= maskKey[i % 4];
         }
+      }
+
+      // Fix SECURITY-002: Reject fragmented frames (fin=false) for now
+      // TODO: Implement proper fragmentation support
+      if (!fin && opcode !== 0x0) {
+        this.emit('error', new Error('Fragmented WebSocket frames are not supported'));
+        return frames;
       }
 
       frames.push({ fin, opcode, masked, payload });

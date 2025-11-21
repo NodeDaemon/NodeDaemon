@@ -4,7 +4,7 @@ import { cpus } from 'os';
 import { EventEmitter } from 'events';
 import { ProcessConfig, ProcessInfo, ProcessInstance, ProcessStrategy, HealthCheckResult } from '../types';
 import { LogManager } from './LogManager';
-import { generateId, calculateExponentialBackoff, sanitizeProcessName, validateProcessConfig, formatUptime } from '../utils/helpers';
+import { generateId, calculateExponentialBackoff, sanitizeProcessName, validateProcessConfig, formatUptime, getSafeEnvironmentVariables } from '../utils/helpers';
 import { findEnvFile, loadEnvFile, mergeEnvConfigs } from '../utils/env';
 import { DEFAULT_CONFIG, GRACEFUL_SHUTDOWN_TIMEOUT, FORCE_KILL_TIMEOUT, SIGNALS } from '../utils/constants';
 
@@ -168,7 +168,9 @@ export class ProcessOrchestrator extends EventEmitter {
         processInfo.config.cwd
       );
 
-      const worker = cluster.fork({ ...process.env, ...processInfo.config.env });
+      // Fix SECURITY-006: Use filtered safe environment variables
+      const safeEnv = getSafeEnvironmentVariables();
+      const worker = cluster.fork({ ...safeEnv, ...processInfo.config.env });
       this.childProcesses.set(instanceId, worker);
 
       worker.on('online', () => {
@@ -224,17 +226,20 @@ export class ProcessOrchestrator extends EventEmitter {
 
     let childProcess: ChildProcess;
 
+    // Fix SECURITY-006: Use filtered safe environment variables
+    const safeEnv = getSafeEnvironmentVariables();
+
     if (strategy === 'fork') {
       childProcess = fork(processInfo.script, processInfo.config.args || [], {
         cwd: processInfo.config.cwd,
-        env: { ...process.env, ...processInfo.config.env },
+        env: { ...safeEnv, ...processInfo.config.env },
         silent: false
       });
     } else {
       const interpreter = processInfo.config.interpreter || 'node';
       childProcess = spawn(interpreter, [processInfo.script, ...(processInfo.config.args || [])], {
         cwd: processInfo.config.cwd,
-        env: { ...process.env, ...processInfo.config.env },
+        env: { ...safeEnv, ...processInfo.config.env },
         stdio: ['inherit', 'inherit', 'inherit']
       });
     }
@@ -410,7 +415,9 @@ export class ProcessOrchestrator extends EventEmitter {
         processInfo.config.cwd
       );
 
-      const worker = cluster.fork({ ...process.env, ...processInfo.config.env });
+      // Fix SECURITY-006: Use filtered safe environment variables
+      const safeEnv = getSafeEnvironmentVariables();
+      const worker = cluster.fork({ ...safeEnv, ...processInfo.config.env });
       this.childProcesses.set(instance.id, worker);
 
       worker.on('online', () => {
@@ -459,17 +466,20 @@ export class ProcessOrchestrator extends EventEmitter {
     return new Promise((resolve, reject) => {
       let childProcess: ChildProcess;
 
+      // Fix SECURITY-006: Use filtered safe environment variables
+      const safeEnv = getSafeEnvironmentVariables();
+
       if (strategy === 'fork') {
         childProcess = fork(processInfo.script, processInfo.config.args || [], {
           cwd: processInfo.config.cwd,
-          env: { ...process.env, ...processInfo.config.env },
+          env: { ...safeEnv, ...processInfo.config.env },
           silent: false
         });
       } else {
         const interpreter = processInfo.config.interpreter || 'node';
         childProcess = spawn(interpreter, [processInfo.script, ...(processInfo.config.args || [])], {
           cwd: processInfo.config.cwd,
-          env: { ...process.env, ...processInfo.config.env },
+          env: { ...safeEnv, ...processInfo.config.env },
           stdio: ['inherit', 'inherit', 'inherit']
         });
       }

@@ -79,5 +79,20 @@ export const DEFAULT_WEB_UI_CONFIG = {
   auth: null
 } as const;
 
+// WebSocket Security Limits
+export const MAX_WEBSOCKET_FRAME_SIZE = 10 * 1024 * 1024; // 10MB max frame size
+export const MAX_WEBSOCKET_MESSAGE_SIZE = 10 * 1024 * 1024; // 10MB max message size
+export const WEBSOCKET_FRAME_TIMEOUT = 30000; // 30 seconds for incomplete frames
+
+// Rate Limiting
+export const MAX_REQUESTS_PER_MINUTE = 100;
+export const MAX_WEBSOCKET_MESSAGES_PER_MINUTE = 200;
+export const MAX_IPC_REQUESTS_PER_MINUTE = 1000;
+
+// Input Validation
+export const MAX_PROCESS_ID_LENGTH = 128;
+export const MAX_PROCESS_NAME_LENGTH = 256;
+export const MAX_JSON_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+
 export const WEB_UI_DIR = join(NODEDAEMON_DIR, 'web');
 export const WEB_UI_STATIC_DIR = join(WEB_UI_DIR, 'static');
