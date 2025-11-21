@@ -314,10 +314,11 @@ export class WebUIServer extends EventEmitter {
 
   broadcastProcessUpdate(processInfo: ProcessInfo): void {
     // Transform process data to include aggregated values
-    const mainInstance = processInfo.instances[0];
+    // Fix BUG-021: Safe array access - instances array could be empty during startup
+    const mainInstance = processInfo.instances.length > 0 ? processInfo.instances[0] : null;
     const totalMemory = processInfo.instances.reduce((sum, i) => sum + (i.memory || 0), 0);
     const totalCpu = processInfo.instances.reduce((sum, i) => sum + (i.cpu || 0), 0);
-    const uptime = mainInstance && mainInstance.uptime ? 
+    const uptime = mainInstance && mainInstance.uptime ?
       Math.floor((Date.now() - mainInstance.uptime) / 1000) : 0;
     
     const transformedProcess = {

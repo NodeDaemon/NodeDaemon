@@ -192,10 +192,11 @@ export class NodeDaemonCore extends EventEmitter {
       const processes = this.processOrchestrator.getProcesses();
       // Transform processes to include aggregated data for frontend
       const transformedProcesses = processes.map(p => {
-        const mainInstance = p.instances[0];
+        // Fix BUG-021: Safe array access - instances array could be empty during startup
+        const mainInstance = p.instances.length > 0 ? p.instances[0] : null;
         const totalMemory = p.instances.reduce((sum, i) => sum + (i.memory || 0), 0);
         const totalCpu = p.instances.reduce((sum, i) => sum + (i.cpu || 0), 0);
-        const uptime = mainInstance && mainInstance.uptime ? 
+        const uptime = mainInstance && mainInstance.uptime ?
           Math.floor((Date.now() - mainInstance.uptime) / 1000) : 0;
         
         return {
@@ -268,10 +269,11 @@ export class NodeDaemonCore extends EventEmitter {
       const processes = this.processOrchestrator.getProcesses();
       // Transform processes to include aggregated data for frontend
       const transformedProcesses = processes.map(p => {
-        const mainInstance = p.instances[0];
+        // Fix BUG-021: Safe array access - instances array could be empty during startup
+        const mainInstance = p.instances.length > 0 ? p.instances[0] : null;
         const totalMemory = p.instances.reduce((sum, i) => sum + (i.memory || 0), 0);
         const totalCpu = p.instances.reduce((sum, i) => sum + (i.cpu || 0), 0);
-        const uptime = mainInstance && mainInstance.uptime ? 
+        const uptime = mainInstance && mainInstance.uptime ?
           Math.floor((Date.now() - mainInstance.uptime) / 1000) : 0;
         
         return {
