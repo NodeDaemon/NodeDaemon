@@ -10,6 +10,7 @@ import { LogManager } from '../core/LogManager';
 import { StateManager } from '../core/StateManager';
 import { HealthMonitor } from '../core/HealthMonitor';
 import { WebUIServer } from '../core/WebUIServer';
+import { RateLimiter } from '../core/RateLimiter';
 
 import { generateId, ensureDir, parseMemoryString, formatMemory, validateProcessId, validateProcessName } from '../utils/helpers';
 import {
@@ -18,7 +19,8 @@ import {
   HEALTH_CHECK_INTERVAL,
   GRACEFUL_SHUTDOWN_TIMEOUT,
   DEFAULT_CONFIG,
-  MAX_JSON_PAYLOAD_SIZE
+  MAX_JSON_PAYLOAD_SIZE,
+  MAX_IPC_REQUESTS_PER_MINUTE
 } from '../utils/constants';
 
 const unlinkAsync = promisify(unlink);
@@ -39,10 +41,12 @@ export class NodeDaemonCore extends EventEmitter {
   private webUIConfig: WebUIConfig | null = null;
   // Fix BUG-007: Buffer for handling fragmented IPC messages
   private messageBuffers: Map<Socket, string> = new Map();
+  // Security: Rate limiting for IPC requests
+  private ipcRateLimiter: RateLimiter;
 
   constructor() {
     super();
-    
+
     // Initialize core components
     this.logger = new LogManager();
     this.stateManager = new StateManager(this.logger);
@@ -50,10 +54,16 @@ export class NodeDaemonCore extends EventEmitter {
     this.fileWatcher = new FileWatcher();
     this.healthMonitor = new HealthMonitor(this.logger);
     this.webUIServer = new WebUIServer();
-    
+
+    // Security: Initialize IPC rate limiter
+    this.ipcRateLimiter = new RateLimiter({
+      maxRequests: MAX_IPC_REQUESTS_PER_MINUTE,
+      windowMs: 60000 // 1 minute
+    });
+
     // Create IPC server
     this.server = createServer();
-    
+
     this.setupEventHandlers();
     this.setupFileWatchHandlers();
     this.setupProcessHandlers();
@@ -449,10 +459,29 @@ export class NodeDaemonCore extends EventEmitter {
 
   private async processIPCMessage(socket: Socket, message: IPCMessage): Promise<void> {
     const { id, type, data } = message;
-    
+
+    // Security: Rate limiting for IPC requests
+    const socketId = `${socket.remoteAddress}:${socket.remotePort}`;
+    const rateLimitResult = this.ipcRateLimiter.checkDetailed(socketId);
+
+    if (!rateLimitResult.allowed) {
+      this.sendError(
+        socket,
+        id,
+        `Rate limit exceeded. Too many IPC requests. Retry after ${Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000)}s`
+      );
+      this.logger.warn('IPC rate limit exceeded', {
+        socketId,
+        messageType: type,
+        limit: MAX_IPC_REQUESTS_PER_MINUTE,
+        resetAt: new Date(rateLimitResult.resetAt).toISOString()
+      });
+      return;
+    }
+
     try {
       let responseData: any = null;
-      
+
       switch (type) {
         case 'ping':
           responseData = { status: 'ok', timestamp: Date.now() };
@@ -982,10 +1011,13 @@ export class NodeDaemonCore extends EventEmitter {
       
       // Stop health monitoring
       this.healthMonitor.stopMonitoring();
-      
+
+      // Security: Cleanup rate limiter
+      this.ipcRateLimiter.destroy();
+
       // Stop Web UI
       await this.webUIServer.stop();
-      
+
       // Stop all processes
       await this.processOrchestrator.gracefulShutdown();
       

@@ -120,7 +120,9 @@ export interface WebSocketMessage {
 }
 
 export interface WebSocketEvent {
-  type: 'process_update' | 'log' | 'metric' | 'status';
-  data: any;
+  type: 'process_update' | 'log' | 'metric' | 'status' | 'connected';
+  data?: any;
   timestamp: number;
+  clientId?: string; // For 'connected' event
+  csrfToken?: string; // Security: CSRF token sent with 'connected' event
 }

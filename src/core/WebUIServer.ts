@@ -5,7 +5,14 @@ import { join, extname, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { SimpleWebSocket, SimpleWebSocketServer } from './WebSocketServer';
 import { LogEntry, ProcessInfo, WebSocketMessage, WebSocketEvent, WebUIConfig } from '../types';
-import { DEFAULT_WEB_UI_CONFIG, NODEDAEMON_DIR, MAX_JSON_PAYLOAD_SIZE } from '../utils/constants';
+import {
+  DEFAULT_WEB_UI_CONFIG,
+  NODEDAEMON_DIR,
+  MAX_JSON_PAYLOAD_SIZE,
+  MAX_REQUESTS_PER_MINUTE,
+  MAX_WEBSOCKET_MESSAGES_PER_MINUTE
+} from '../utils/constants';
+import { RateLimiter } from './RateLimiter';
 
 export class WebUIServer extends EventEmitter {
   private httpServer: HttpServer | null = null;
@@ -15,9 +22,28 @@ export class WebUIServer extends EventEmitter {
   private subscriptions: Map<string, Set<string>> = new Map(); // clientId -> processIds
   private staticPath: string;
 
+  // Security: CSRF Protection
+  private csrfTokens: Map<string, string> = new Map(); // clientId -> token
+
+  // Security: Rate Limiting
+  private httpRateLimiter: RateLimiter;
+  private wsRateLimiter: RateLimiter;
+
   constructor(config: Partial<WebUIConfig> = {}) {
     super();
     this.config = { ...DEFAULT_WEB_UI_CONFIG, ...config };
+
+    // Initialize rate limiters
+    this.httpRateLimiter = new RateLimiter({
+      maxRequests: MAX_REQUESTS_PER_MINUTE,
+      windowMs: 60000 // 1 minute
+    });
+
+    this.wsRateLimiter = new RateLimiter({
+      maxRequests: MAX_WEBSOCKET_MESSAGES_PER_MINUTE,
+      windowMs: 60000 // 1 minute
+    });
+
     // Try multiple paths to find web directory
     const possiblePaths = [
       join(__dirname, '..', 'web'),
@@ -25,14 +51,14 @@ export class WebUIServer extends EventEmitter {
       join(process.cwd(), 'dist', 'web'),
       join(process.cwd(), 'web')
     ];
-    
+
     for (const path of possiblePaths) {
       if (existsSync(path)) {
         this.staticPath = path;
         break;
       }
     }
-    
+
     if (!this.staticPath) {
       this.staticPath = possiblePaths[0]; // fallback
     }
@@ -89,6 +115,11 @@ export class WebUIServer extends EventEmitter {
         this.wsServer.close();
       }
 
+      // Cleanup rate limiters
+      this.httpRateLimiter.destroy();
+      this.wsRateLimiter.destroy();
+      this.csrfTokens.clear();
+
       if (this.httpServer) {
         this.httpServer.close(() => {
           this.emit('stopped');
@@ -102,7 +133,34 @@ export class WebUIServer extends EventEmitter {
 
   private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
     const url = req.url || '/';
-    
+
+    // Security: Add security headers to all HTTP responses
+    this.addSecurityHeaders(res);
+
+    // Security: Rate limiting - check before any processing
+    const clientIp = this.getClientIdentifier(req);
+    const rateLimitResult = this.httpRateLimiter.checkDetailed(clientIp);
+
+    if (!rateLimitResult.allowed) {
+      res.writeHead(429, {
+        'Content-Type': 'application/json',
+        'Retry-After': Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000).toString(),
+        'X-RateLimit-Limit': MAX_REQUESTS_PER_MINUTE.toString(),
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': rateLimitResult.resetAt.toString()
+      });
+      res.end(JSON.stringify({
+        error: 'Rate limit exceeded',
+        retryAfter: Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000)
+      }));
+      return;
+    }
+
+    // Add rate limit headers to response
+    res.setHeader('X-RateLimit-Limit', MAX_REQUESTS_PER_MINUTE.toString());
+    res.setHeader('X-RateLimit-Remaining', rateLimitResult.remaining.toString());
+    res.setHeader('X-RateLimit-Reset', rateLimitResult.resetAt.toString());
+
     // Basic authentication check
     if (this.config.auth && !this.checkAuth(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="NodeDaemon Web UI"' });
@@ -154,6 +212,16 @@ export class WebUIServer extends EventEmitter {
         res.end(JSON.stringify({ error: 'Not found' }));
       }
     } else if (req.method === 'POST') {
+      // Security: CSRF Protection - validate token for state-changing operations
+      if (!this.validateCsrfToken(req)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({
+          error: 'CSRF token validation failed',
+          message: 'Missing or invalid X-CSRF-Token header'
+        }));
+        return;
+      }
+
       let body = '';
       let bodySize = 0;
 
@@ -280,12 +348,27 @@ export class WebUIServer extends EventEmitter {
     this.clients.set(clientId, ws);
     this.subscriptions.set(clientId, new Set());
 
+    // Security: Generate CSRF token for this client
+    const csrfToken = randomUUID();
+    this.csrfTokens.set(clientId, csrfToken);
+
     ws.on('message', (data) => {
       try {
         // Fix SECURITY-005: Check message size before parsing
         const dataStr = data.toString();
         if (dataStr.length > MAX_JSON_PAYLOAD_SIZE) {
           ws.send(JSON.stringify({ error: `Message too large: exceeds ${MAX_JSON_PAYLOAD_SIZE} bytes` }));
+          return;
+        }
+
+        // Security: Rate limiting for WebSocket messages
+        const rateLimitResult = this.wsRateLimiter.checkDetailed(clientId);
+        if (!rateLimitResult.allowed) {
+          ws.send(JSON.stringify({
+            error: 'Rate limit exceeded',
+            retryAfter: Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000),
+            rateLimitReset: rateLimitResult.resetAt
+          }));
           return;
         }
 
@@ -299,16 +382,18 @@ export class WebUIServer extends EventEmitter {
     ws.on('close', () => {
       this.clients.delete(clientId);
       this.subscriptions.delete(clientId);
+      this.csrfTokens.delete(clientId); // Clean up CSRF token
     });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
     });
 
-    // Send initial connection confirmation
+    // Send initial connection confirmation with CSRF token
     ws.send(JSON.stringify({
       type: 'connected',
       clientId,
+      csrfToken, // Security: Send CSRF token to client
       timestamp: Date.now()
     }));
   }
@@ -418,6 +503,69 @@ export class WebUIServer extends EventEmitter {
   private generateClientId(): string {
     // Fix BUG-025: Use cryptographically secure randomUUID instead of MD5 hash
     return randomUUID();
+  }
+
+  /**
+   * Security: Validate CSRF token from request header
+   *
+   * For HTTP POST requests, validates the X-CSRF-Token header against
+   * stored tokens from WebSocket connections.
+   *
+   * This prevents Cross-Site Request Forgery attacks where malicious
+   * sites could trigger state-changing operations.
+   */
+  private validateCsrfToken(req: IncomingMessage): boolean {
+    const token = req.headers['x-csrf-token'] as string;
+
+    if (!token) {
+      return false;
+    }
+
+    // Check if token exists in our stored tokens
+    // We allow any valid token since we can't match to specific client ID from HTTP request
+    for (const [clientId, storedToken] of this.csrfTokens.entries()) {
+      if (token === storedToken) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Security: Add security headers to HTTP response
+   *
+   * Implements defense-in-depth security headers:
+   * - X-Content-Type-Options: Prevents MIME-sniffing
+   * - X-Frame-Options: Prevents clickjacking
+   * - X-XSS-Protection: Enables browser XSS filter
+   * - Referrer-Policy: Controls referrer information
+   * - Content-Security-Policy: Restricts resource loading
+   */
+  private addSecurityHeaders(res: ServerResponse): void {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+  }
+
+  /**
+   * Security: Get unique identifier for client (for rate limiting)
+   *
+   * Uses IP address and port combination for HTTP requests.
+   * Falls back to 'unknown' if socket information is unavailable.
+   */
+  private getClientIdentifier(req: IncomingMessage): string {
+    const socket = req.socket;
+    if (!socket) {
+      return 'unknown';
+    }
+
+    const ip = socket.remoteAddress || 'unknown';
+    const port = socket.remotePort || '0';
+
+    return `${ip}:${port}`;
   }
 
   isRunning(): boolean {
