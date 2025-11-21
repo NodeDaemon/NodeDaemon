@@ -46,7 +46,7 @@ export class Formatter {
       RESTARTS: proc.restarts,
       UPTIME: utilFormatUptime(proc.uptime),
       MEMORY: utilFormatMemory(proc.memory),
-      CPU: `${proc.cpu.toFixed(1)}%`
+      CPU: `${(proc.cpu || 0).toFixed(1)}%`
     }));
 
     return this.formatTable(formatted, [

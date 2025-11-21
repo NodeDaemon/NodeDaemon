@@ -447,7 +447,7 @@ WEBUI START OPTIONS:
   -p, --port <port>        Port to listen on (default: 8080)
   -h, --host <host>        Host to bind to (default: 127.0.0.1)
   -u, --username <user>    Basic auth username
-  --password <pass>        Basic auth password
+                           (password via NODEDAEMON_WEBUI_PASSWORD env var)
 
 EXAMPLES:
   nodedaemon daemon -d                           # Start daemon in background

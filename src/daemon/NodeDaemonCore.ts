@@ -210,7 +210,7 @@ export class NodeDaemonCore extends EventEmitter {
 
     this.webUIServer.on('api:status', (callback) => {
       const status = {
-        version: '1.0.2',
+        version: '1.1.0',
         uptime: process.uptime(),
         pid: process.pid,
         processCount: this.processOrchestrator.getProcesses().length,
