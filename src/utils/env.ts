@@ -29,8 +29,12 @@ export function loadEnvFile(filePath: string): EnvConfig {
         const key = trimmedLine.substring(0, separatorIndex).trim();
         const value = trimmedLine.substring(separatorIndex + 1).trim();
         
-        // Remove surrounding quotes if present
-        const unquotedValue = value.replace(/^["']|["']$/g, '');
+        // Remove surrounding quotes if present (must be matching pairs)
+        let unquotedValue = value;
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+          unquotedValue = value.slice(1, -1);
+        }
         
         envConfig[key] = unquotedValue;
       }
