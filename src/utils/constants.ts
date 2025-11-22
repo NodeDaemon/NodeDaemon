@@ -94,5 +94,11 @@ export const MAX_PROCESS_ID_LENGTH = 128;
 export const MAX_PROCESS_NAME_LENGTH = 256;
 export const MAX_JSON_PAYLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Static File Cache
+export const STATIC_FILE_CACHE_MAX_SIZE = 50 * 1024 * 1024; // 50MB
+export const STATIC_FILE_CACHE_MAX_FILES = 100;
+export const STATIC_FILE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+export const STATIC_FILE_CACHE_CLEANUP_INTERVAL = 60 * 1000; // 1 minute
+
 export const WEB_UI_DIR = join(NODEDAEMON_DIR, 'web');
 export const WEB_UI_STATIC_DIR = join(WEB_UI_DIR, 'static');

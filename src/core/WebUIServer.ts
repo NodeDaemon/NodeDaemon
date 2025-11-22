@@ -1,11 +1,24 @@
 import { createServer, Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { EventEmitter } from 'events';
-import { readFileSync, existsSync, realpathSync } from 'fs';
+import { existsSync } from 'fs';
+import { readFile, realpath, access } from 'fs/promises';
 import { join, extname, resolve } from 'path';
 import { randomUUID } from 'crypto';
 import { SimpleWebSocket, SimpleWebSocketServer } from './WebSocketServer';
 import { LogEntry, ProcessInfo, WebSocketMessage, WebSocketEvent, WebUIConfig } from '../types';
-import { DEFAULT_WEB_UI_CONFIG, NODEDAEMON_DIR, MAX_JSON_PAYLOAD_SIZE } from '../utils/constants';
+import {
+  DEFAULT_WEB_UI_CONFIG,
+  NODEDAEMON_DIR,
+  MAX_JSON_PAYLOAD_SIZE,
+  MAX_REQUESTS_PER_MINUTE,
+  MAX_WEBSOCKET_MESSAGES_PER_MINUTE,
+  STATIC_FILE_CACHE_MAX_SIZE,
+  STATIC_FILE_CACHE_MAX_FILES,
+  STATIC_FILE_CACHE_TTL,
+  STATIC_FILE_CACHE_CLEANUP_INTERVAL
+} from '../utils/constants';
+import { RateLimiter } from './RateLimiter';
+import { StaticFileCache } from './StaticFileCache';
 
 export class WebUIServer extends EventEmitter {
   private httpServer: HttpServer | null = null;
@@ -15,9 +28,45 @@ export class WebUIServer extends EventEmitter {
   private subscriptions: Map<string, Set<string>> = new Map(); // clientId -> processIds
   private staticPath: string;
 
+  // Security: CSRF Protection
+  private csrfTokens: Map<string, string> = new Map(); // clientId -> token
+
+  // Security: Rate Limiting
+  private httpRateLimiter: RateLimiter;
+  private wsRateLimiter: RateLimiter;
+
+  // Performance: Cache realStaticPath (doesn't change during runtime)
+  private realStaticPath: string | null = null;
+
+  // Performance: Static file cache
+  private fileCache: StaticFileCache;
+  private cacheCleanupTimer: NodeJS.Timeout | null = null;
+
   constructor(config: Partial<WebUIConfig> = {}) {
     super();
     this.config = { ...DEFAULT_WEB_UI_CONFIG, ...config };
+
+    // Initialize rate limiters
+    this.httpRateLimiter = new RateLimiter({
+      maxRequests: MAX_REQUESTS_PER_MINUTE,
+      windowMs: 60000 // 1 minute
+    });
+
+    this.wsRateLimiter = new RateLimiter({
+      maxRequests: MAX_WEBSOCKET_MESSAGES_PER_MINUTE,
+      windowMs: 60000 // 1 minute
+    });
+
+    // Initialize static file cache
+    // Disable cache in development mode (NODE_ENV=development)
+    const cacheEnabled = process.env.NODE_ENV !== 'development';
+    this.fileCache = new StaticFileCache({
+      maxSize: STATIC_FILE_CACHE_MAX_SIZE,
+      maxFiles: STATIC_FILE_CACHE_MAX_FILES,
+      ttl: STATIC_FILE_CACHE_TTL,
+      enabled: cacheEnabled
+    });
+
     // Try multiple paths to find web directory
     const possiblePaths = [
       join(__dirname, '..', 'web'),
@@ -25,14 +74,14 @@ export class WebUIServer extends EventEmitter {
       join(process.cwd(), 'dist', 'web'),
       join(process.cwd(), 'web')
     ];
-    
+
     for (const path of possiblePaths) {
       if (existsSync(path)) {
         this.staticPath = path;
         break;
       }
     }
-    
+
     if (!this.staticPath) {
       this.staticPath = possiblePaths[0]; // fallback
     }
@@ -68,9 +117,15 @@ export class WebUIServer extends EventEmitter {
 
       this.wsServer.on('connection', this.handleWebSocketConnection.bind(this));
 
+      // Start cache cleanup timer
+      this.startCacheCleanup();
+
       this.httpServer.listen(this.config.port, this.config.host, () => {
         console.log(`Web UI server listening on http://${this.config.host}:${this.config.port}`);
         console.log(`Serving static files from: ${this.staticPath}`);
+        if (this.fileCache.isEnabled()) {
+          console.log(`Static file cache enabled (max ${STATIC_FILE_CACHE_MAX_SIZE / 1024 / 1024}MB, ${STATIC_FILE_CACHE_MAX_FILES} files)`);
+        }
         this.emit('started');
         resolve();
       });
@@ -89,6 +144,15 @@ export class WebUIServer extends EventEmitter {
         this.wsServer.close();
       }
 
+      // Stop cache cleanup timer
+      this.stopCacheCleanup();
+
+      // Cleanup rate limiters and cache
+      this.httpRateLimiter.destroy();
+      this.wsRateLimiter.destroy();
+      this.csrfTokens.clear();
+      this.fileCache.clear();
+
       if (this.httpServer) {
         this.httpServer.close(() => {
           this.emit('stopped');
@@ -100,9 +164,36 @@ export class WebUIServer extends EventEmitter {
     });
   }
 
-  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url || '/';
-    
+
+    // Security: Add security headers to all HTTP responses
+    this.addSecurityHeaders(res);
+
+    // Security: Rate limiting - check before any processing
+    const clientIp = this.getClientIdentifier(req);
+    const rateLimitResult = this.httpRateLimiter.checkDetailed(clientIp);
+
+    if (!rateLimitResult.allowed) {
+      res.writeHead(429, {
+        'Content-Type': 'application/json',
+        'Retry-After': Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000).toString(),
+        'X-RateLimit-Limit': MAX_REQUESTS_PER_MINUTE.toString(),
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': rateLimitResult.resetAt.toString()
+      });
+      res.end(JSON.stringify({
+        error: 'Rate limit exceeded',
+        retryAfter: Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000)
+      }));
+      return;
+    }
+
+    // Add rate limit headers to response
+    res.setHeader('X-RateLimit-Limit', MAX_REQUESTS_PER_MINUTE.toString());
+    res.setHeader('X-RateLimit-Remaining', rateLimitResult.remaining.toString());
+    res.setHeader('X-RateLimit-Reset', rateLimitResult.resetAt.toString());
+
     // Basic authentication check
     if (this.config.auth && !this.checkAuth(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="NodeDaemon Web UI"' });
@@ -110,13 +201,13 @@ export class WebUIServer extends EventEmitter {
       return;
     }
 
-    // Route handling
+    // Route handling - use async static file serving
     if (url === '/') {
-      this.serveStaticFile('/index.html', res);
+      await this.serveStaticFile('/index.html', res);
     } else if (url.startsWith('/api/')) {
       this.handleApiRequest(url, req, res);
     } else {
-      this.serveStaticFile(url, res);
+      await this.serveStaticFile(url, res);
     }
   }
 
@@ -149,11 +240,26 @@ export class WebUIServer extends EventEmitter {
           res.writeHead(200);
           res.end(JSON.stringify(status));
         });
+      } else if (path === 'cache/stats') {
+        // Performance: Cache statistics endpoint
+        const stats = this.getCacheStats();
+        res.writeHead(200);
+        res.end(JSON.stringify(stats));
       } else {
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Not found' }));
       }
     } else if (req.method === 'POST') {
+      // Security: CSRF Protection - validate token for state-changing operations
+      if (!this.validateCsrfToken(req)) {
+        res.writeHead(403);
+        res.end(JSON.stringify({
+          error: 'CSRF token validation failed',
+          message: 'Missing or invalid X-CSRF-Token header'
+        }));
+        return;
+      }
+
       let body = '';
       let bodySize = 0;
 
@@ -206,31 +312,40 @@ export class WebUIServer extends EventEmitter {
   }
 
 
-  private serveStaticFile(urlPath: string, res: ServerResponse): void {
+  /**
+   * Serve static files asynchronously with caching
+   * Uses in-memory cache to reduce disk I/O for frequently accessed files
+   */
+  private async serveStaticFile(urlPath: string, res: ServerResponse): Promise<void> {
     // Sanitize path
     const normalizedPath = urlPath.replace(/^\/+/, '');
     const filePath = join(this.staticPath, normalizedPath);
 
     // Fix SECURITY-001: Path traversal protection - validate BEFORE checking existence
     let realFilePath: string;
-    let realStaticPath: string;
+    let cachedRealStaticPath: string;
 
     try {
-      // Get real static path first
-      realStaticPath = realpathSync(this.staticPath);
+      // Performance: Cache realStaticPath (doesn't change during runtime)
+      if (!this.realStaticPath) {
+        this.realStaticPath = await realpath(this.staticPath);
+      }
+      cachedRealStaticPath = this.realStaticPath;
 
-      // Check if requested file exists
-      if (!existsSync(filePath)) {
+      // Check if requested file exists (async)
+      try {
+        await access(filePath);
+      } catch {
         res.writeHead(404);
         res.end('Not found');
         return;
       }
 
-      // Resolve to real absolute path (follows symlinks)
-      realFilePath = realpathSync(filePath);
+      // Resolve to real absolute path (follows symlinks) - async
+      realFilePath = await realpath(filePath);
 
       // Security: Ensure we're not serving files outside static directory
-      if (!realFilePath.startsWith(realStaticPath + '/') && realFilePath !== realStaticPath) {
+      if (!realFilePath.startsWith(cachedRealStaticPath + '/') && realFilePath !== cachedRealStaticPath) {
         res.writeHead(403);
         res.end('Forbidden');
         return;
@@ -241,16 +356,35 @@ export class WebUIServer extends EventEmitter {
       return;
     }
 
-    // Fix SECURITY-001: Use validated realFilePath for all operations
+    // Performance: Check cache first
+    const cached = this.fileCache.get(realFilePath);
+    if (cached) {
+      // Cache hit - serve from memory
+      res.writeHead(200, {
+        'Content-Type': cached.contentType,
+        'Content-Length': cached.size,
+        'X-Cache': 'HIT'
+      });
+      res.end(cached.content);
+      return;
+    }
+
+    // Cache miss - read from disk
     const ext = extname(realFilePath).toLowerCase();
     const contentType = this.getContentType(ext);
 
     try {
-      const content = readFileSync(realFilePath);
+      // Performance: Use async readFile instead of blocking readFileSync
+      const content = await readFile(realFilePath);
+
+      // Cache the file for future requests
+      this.fileCache.set(realFilePath, content, contentType);
+
       // Fix BUG-030: Add Content-Length header for HTTP/1.1 compliance
       res.writeHead(200, {
         'Content-Type': contentType,
-        'Content-Length': content.length
+        'Content-Length': content.length,
+        'X-Cache': 'MISS'
       });
       res.end(content);
     } catch (error) {
@@ -280,12 +414,27 @@ export class WebUIServer extends EventEmitter {
     this.clients.set(clientId, ws);
     this.subscriptions.set(clientId, new Set());
 
+    // Security: Generate CSRF token for this client
+    const csrfToken = randomUUID();
+    this.csrfTokens.set(clientId, csrfToken);
+
     ws.on('message', (data) => {
       try {
         // Fix SECURITY-005: Check message size before parsing
         const dataStr = data.toString();
         if (dataStr.length > MAX_JSON_PAYLOAD_SIZE) {
           ws.send(JSON.stringify({ error: `Message too large: exceeds ${MAX_JSON_PAYLOAD_SIZE} bytes` }));
+          return;
+        }
+
+        // Security: Rate limiting for WebSocket messages
+        const rateLimitResult = this.wsRateLimiter.checkDetailed(clientId);
+        if (!rateLimitResult.allowed) {
+          ws.send(JSON.stringify({
+            error: 'Rate limit exceeded',
+            retryAfter: Math.ceil((rateLimitResult.resetAt - Date.now()) / 1000),
+            rateLimitReset: rateLimitResult.resetAt
+          }));
           return;
         }
 
@@ -299,16 +448,18 @@ export class WebUIServer extends EventEmitter {
     ws.on('close', () => {
       this.clients.delete(clientId);
       this.subscriptions.delete(clientId);
+      this.csrfTokens.delete(clientId); // Clean up CSRF token
     });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
     });
 
-    // Send initial connection confirmation
+    // Send initial connection confirmation with CSRF token
     ws.send(JSON.stringify({
       type: 'connected',
       clientId,
+      csrfToken, // Security: Send CSRF token to client
       timestamp: Date.now()
     }));
   }
@@ -418,6 +569,113 @@ export class WebUIServer extends EventEmitter {
   private generateClientId(): string {
     // Fix BUG-025: Use cryptographically secure randomUUID instead of MD5 hash
     return randomUUID();
+  }
+
+  /**
+   * Security: Validate CSRF token from request header
+   *
+   * For HTTP POST requests, validates the X-CSRF-Token header against
+   * stored tokens from WebSocket connections.
+   *
+   * This prevents Cross-Site Request Forgery attacks where malicious
+   * sites could trigger state-changing operations.
+   */
+  private validateCsrfToken(req: IncomingMessage): boolean {
+    const token = req.headers['x-csrf-token'] as string;
+
+    if (!token) {
+      return false;
+    }
+
+    // Check if token exists in our stored tokens
+    // We allow any valid token since we can't match to specific client ID from HTTP request
+    for (const [clientId, storedToken] of this.csrfTokens.entries()) {
+      if (token === storedToken) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Security: Add security headers to HTTP response
+   *
+   * Implements defense-in-depth security headers:
+   * - X-Content-Type-Options: Prevents MIME-sniffing
+   * - X-Frame-Options: Prevents clickjacking
+   * - X-XSS-Protection: Enables browser XSS filter
+   * - Referrer-Policy: Controls referrer information
+   * - Content-Security-Policy: Restricts resource loading
+   */
+  private addSecurityHeaders(res: ServerResponse): void {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+  }
+
+  /**
+   * Security: Get unique identifier for client (for rate limiting)
+   *
+   * Uses IP address and port combination for HTTP requests.
+   * Falls back to 'unknown' if socket information is unavailable.
+   */
+  private getClientIdentifier(req: IncomingMessage): string {
+    const socket = req.socket;
+    if (!socket) {
+      return 'unknown';
+    }
+
+    const ip = socket.remoteAddress || 'unknown';
+    const port = socket.remotePort || '0';
+
+    return `${ip}:${port}`;
+  }
+
+  /**
+   * Start periodic cache cleanup timer
+   * Removes expired entries to free memory
+   */
+  private startCacheCleanup(): void {
+    this.cacheCleanupTimer = setInterval(() => {
+      const cleaned = this.fileCache.cleanupExpired();
+      if (cleaned > 0) {
+        console.log(`Static file cache: cleaned ${cleaned} expired entries`);
+      }
+    }, STATIC_FILE_CACHE_CLEANUP_INTERVAL);
+
+    // Don't keep process alive for cleanup timer
+    if (this.cacheCleanupTimer.unref) {
+      this.cacheCleanupTimer.unref();
+    }
+  }
+
+  /**
+   * Stop cache cleanup timer
+   */
+  private stopCacheCleanup(): void {
+    if (this.cacheCleanupTimer) {
+      clearInterval(this.cacheCleanupTimer);
+      this.cacheCleanupTimer = null;
+    }
+  }
+
+  /**
+   * Get cache statistics
+   * Useful for monitoring and debugging
+   */
+  public getCacheStats() {
+    return this.fileCache.getStats();
+  }
+
+  /**
+   * Clear cache manually
+   * Useful for development or when static files change
+   */
+  public clearCache(): void {
+    this.fileCache.clear();
   }
 
   isRunning(): boolean {

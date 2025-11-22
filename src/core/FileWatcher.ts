@@ -1,4 +1,5 @@
-import { watch, FSWatcher, statSync, readFileSync } from 'fs';
+import { watch, FSWatcher } from 'fs';
+import { readFile, stat } from 'fs/promises';
 import { join, resolve, relative } from 'path';
 import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
@@ -115,10 +116,14 @@ export class FileWatcher extends EventEmitter {
     return this.debouncedHandlers.get(filePath)!;
   }
 
-  private processFileChange(eventType: string, filePath: string): void {
+  /**
+   * Process file change events asynchronously
+   * Uses async I/O to prevent blocking the event loop
+   */
+  private async processFileChange(eventType: string, filePath: string): Promise<void> {
     try {
       const existingFile = this.watchedFiles.get(filePath);
-      
+
       if (!isFile(filePath)) {
         if (existingFile) {
           this.watchedFiles.delete(filePath);
@@ -127,8 +132,9 @@ export class FileWatcher extends EventEmitter {
         return;
       }
 
-      const stats = statSync(filePath);
-      const currentHash = this.calculateFileHash(filePath);
+      // Use async stat instead of statSync
+      const stats = await stat(filePath);
+      const currentHash = await this.calculateFileHash(filePath);
       const currentSize = stats.size;
       const currentMtime = stats.mtime.getTime();
 
@@ -141,7 +147,7 @@ export class FileWatcher extends EventEmitter {
         });
         this.emitFileEvent('add', filePath, stats);
       } else {
-        const hasChanged = 
+        const hasChanged =
           existingFile.hash !== currentHash ||
           existingFile.size !== currentSize ||
           existingFile.mtime !== currentMtime;
@@ -161,9 +167,13 @@ export class FileWatcher extends EventEmitter {
     }
   }
 
-  private calculateFileHash(filePath: string): string {
+  /**
+   * Calculate MD5 hash of file content asynchronously
+   * Prevents blocking the event loop on large files
+   */
+  private async calculateFileHash(filePath: string): Promise<string> {
     try {
-      const content = readFileSync(filePath);
+      const content = await readFile(filePath);
       return createHash('md5').update(content).digest('hex');
     } catch (error) {
       return '';

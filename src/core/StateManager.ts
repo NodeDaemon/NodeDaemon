@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs';
+import { readFileSync, existsSync, unlinkSync, writeFileSync } from 'fs';
+import { writeFile, rename } from 'fs/promises';
 import { DaemonState, ProcessInfo } from '../types';
 import { LogManager } from './LogManager';
 import { ensureFileDir } from '../utils/helpers';
@@ -101,7 +102,22 @@ export class StateManager {
     }
   }
 
+  /**
+   * Save state asynchronously (fire-and-forget)
+   * Prevents blocking the event loop during file writes
+   */
   public saveState(): void {
+    // Fire and forget - async save without blocking
+    this.saveStateAsync().catch(error => {
+      this.logger.error(`Failed to save state: ${error.message}`, { error });
+    });
+  }
+
+  /**
+   * Async state save implementation
+   * Uses atomic write (temp file + rename) to prevent corruption
+   */
+  private async saveStateAsync(): Promise<void> {
     // Fix BUG-005: Prevent concurrent saves with locking
     if (this.isSaving) {
       this.logger.debug('Save already in progress, skipping');
@@ -125,11 +141,11 @@ export class StateManager {
       const tempFile = `${STATE_FILE}.tmp.${process.pid}`;
 
       try {
-        // Write to temporary file first
-        writeFileSync(tempFile, stateData, 'utf8');
+        // Write to temporary file first (async)
+        await writeFile(tempFile, stateData, 'utf8');
 
-        // Atomic rename (this is atomic on most filesystems)
-        renameSync(tempFile, STATE_FILE);
+        // Atomic rename (async) - this is atomic on most filesystems
+        await rename(tempFile, STATE_FILE);
 
         this.logger.debug('State saved successfully', {
           processCount: this.state.processes.size,
@@ -147,8 +163,6 @@ export class StateManager {
         throw writeError;
       }
 
-    } catch (error) {
-      this.logger.error(`Failed to save state: ${error.message}`, { error });
     } finally {
       this.isSaving = false;
     }
