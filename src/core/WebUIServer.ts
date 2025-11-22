@@ -11,9 +11,14 @@ import {
   NODEDAEMON_DIR,
   MAX_JSON_PAYLOAD_SIZE,
   MAX_REQUESTS_PER_MINUTE,
-  MAX_WEBSOCKET_MESSAGES_PER_MINUTE
+  MAX_WEBSOCKET_MESSAGES_PER_MINUTE,
+  STATIC_FILE_CACHE_MAX_SIZE,
+  STATIC_FILE_CACHE_MAX_FILES,
+  STATIC_FILE_CACHE_TTL,
+  STATIC_FILE_CACHE_CLEANUP_INTERVAL
 } from '../utils/constants';
 import { RateLimiter } from './RateLimiter';
+import { StaticFileCache } from './StaticFileCache';
 
 export class WebUIServer extends EventEmitter {
   private httpServer: HttpServer | null = null;
@@ -33,6 +38,10 @@ export class WebUIServer extends EventEmitter {
   // Performance: Cache realStaticPath (doesn't change during runtime)
   private realStaticPath: string | null = null;
 
+  // Performance: Static file cache
+  private fileCache: StaticFileCache;
+  private cacheCleanupTimer: NodeJS.Timeout | null = null;
+
   constructor(config: Partial<WebUIConfig> = {}) {
     super();
     this.config = { ...DEFAULT_WEB_UI_CONFIG, ...config };
@@ -46,6 +55,16 @@ export class WebUIServer extends EventEmitter {
     this.wsRateLimiter = new RateLimiter({
       maxRequests: MAX_WEBSOCKET_MESSAGES_PER_MINUTE,
       windowMs: 60000 // 1 minute
+    });
+
+    // Initialize static file cache
+    // Disable cache in development mode (NODE_ENV=development)
+    const cacheEnabled = process.env.NODE_ENV !== 'development';
+    this.fileCache = new StaticFileCache({
+      maxSize: STATIC_FILE_CACHE_MAX_SIZE,
+      maxFiles: STATIC_FILE_CACHE_MAX_FILES,
+      ttl: STATIC_FILE_CACHE_TTL,
+      enabled: cacheEnabled
     });
 
     // Try multiple paths to find web directory
@@ -98,9 +117,15 @@ export class WebUIServer extends EventEmitter {
 
       this.wsServer.on('connection', this.handleWebSocketConnection.bind(this));
 
+      // Start cache cleanup timer
+      this.startCacheCleanup();
+
       this.httpServer.listen(this.config.port, this.config.host, () => {
         console.log(`Web UI server listening on http://${this.config.host}:${this.config.port}`);
         console.log(`Serving static files from: ${this.staticPath}`);
+        if (this.fileCache.isEnabled()) {
+          console.log(`Static file cache enabled (max ${STATIC_FILE_CACHE_MAX_SIZE / 1024 / 1024}MB, ${STATIC_FILE_CACHE_MAX_FILES} files)`);
+        }
         this.emit('started');
         resolve();
       });
@@ -119,10 +144,14 @@ export class WebUIServer extends EventEmitter {
         this.wsServer.close();
       }
 
-      // Cleanup rate limiters
+      // Stop cache cleanup timer
+      this.stopCacheCleanup();
+
+      // Cleanup rate limiters and cache
       this.httpRateLimiter.destroy();
       this.wsRateLimiter.destroy();
       this.csrfTokens.clear();
+      this.fileCache.clear();
 
       if (this.httpServer) {
         this.httpServer.close(() => {
@@ -211,6 +240,11 @@ export class WebUIServer extends EventEmitter {
           res.writeHead(200);
           res.end(JSON.stringify(status));
         });
+      } else if (path === 'cache/stats') {
+        // Performance: Cache statistics endpoint
+        const stats = this.getCacheStats();
+        res.writeHead(200);
+        res.end(JSON.stringify(stats));
       } else {
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Not found' }));
@@ -279,8 +313,8 @@ export class WebUIServer extends EventEmitter {
 
 
   /**
-   * Serve static files asynchronously
-   * Uses async I/O to prevent blocking HTTP requests
+   * Serve static files asynchronously with caching
+   * Uses in-memory cache to reduce disk I/O for frequently accessed files
    */
   private async serveStaticFile(urlPath: string, res: ServerResponse): Promise<void> {
     // Sanitize path
@@ -322,17 +356,35 @@ export class WebUIServer extends EventEmitter {
       return;
     }
 
-    // Fix SECURITY-001: Use validated realFilePath for all operations
+    // Performance: Check cache first
+    const cached = this.fileCache.get(realFilePath);
+    if (cached) {
+      // Cache hit - serve from memory
+      res.writeHead(200, {
+        'Content-Type': cached.contentType,
+        'Content-Length': cached.size,
+        'X-Cache': 'HIT'
+      });
+      res.end(cached.content);
+      return;
+    }
+
+    // Cache miss - read from disk
     const ext = extname(realFilePath).toLowerCase();
     const contentType = this.getContentType(ext);
 
     try {
       // Performance: Use async readFile instead of blocking readFileSync
       const content = await readFile(realFilePath);
+
+      // Cache the file for future requests
+      this.fileCache.set(realFilePath, content, contentType);
+
       // Fix BUG-030: Add Content-Length header for HTTP/1.1 compliance
       res.writeHead(200, {
         'Content-Type': contentType,
-        'Content-Length': content.length
+        'Content-Length': content.length,
+        'X-Cache': 'MISS'
       });
       res.end(content);
     } catch (error) {
@@ -580,6 +632,50 @@ export class WebUIServer extends EventEmitter {
     const port = socket.remotePort || '0';
 
     return `${ip}:${port}`;
+  }
+
+  /**
+   * Start periodic cache cleanup timer
+   * Removes expired entries to free memory
+   */
+  private startCacheCleanup(): void {
+    this.cacheCleanupTimer = setInterval(() => {
+      const cleaned = this.fileCache.cleanupExpired();
+      if (cleaned > 0) {
+        console.log(`Static file cache: cleaned ${cleaned} expired entries`);
+      }
+    }, STATIC_FILE_CACHE_CLEANUP_INTERVAL);
+
+    // Don't keep process alive for cleanup timer
+    if (this.cacheCleanupTimer.unref) {
+      this.cacheCleanupTimer.unref();
+    }
+  }
+
+  /**
+   * Stop cache cleanup timer
+   */
+  private stopCacheCleanup(): void {
+    if (this.cacheCleanupTimer) {
+      clearInterval(this.cacheCleanupTimer);
+      this.cacheCleanupTimer = null;
+    }
+  }
+
+  /**
+   * Get cache statistics
+   * Useful for monitoring and debugging
+   */
+  public getCacheStats() {
+    return this.fileCache.getStats();
+  }
+
+  /**
+   * Clear cache manually
+   * Useful for development or when static files change
+   */
+  public clearCache(): void {
+    this.fileCache.clear();
   }
 
   isRunning(): boolean {
